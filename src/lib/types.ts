@@ -50,8 +50,17 @@ export type Goal =
   | "대화 마무리하기"
   | "업무적으로 답하기";
 
-// 답변 카드의 "더 짧게/더 친근하게/더 정중하게" 미세 조정 요청
-export type RefineAdjustment = "shorter" | "friendlier" | "polite";
+// 답변 카드의 미세 조정 요청(STEP 9에서 옵션 확장: 부드럽게/자연스럽게/질문 없이/이모지 조정/직접 지시 추가)
+export type RefineAdjustment =
+  | "shorter"
+  | "softer"
+  | "friendlier"
+  | "polite"
+  | "natural"
+  | "noQuestion"
+  | "emojiAdd"
+  | "emojiRemove"
+  | "custom";
 
 // 말투 지정. "자동"이면 AI가 대화에서 관찰한 사용자의 평소 말투를 따른다.
 export type SpeechLevel = "자동" | "반말" | "존댓말";

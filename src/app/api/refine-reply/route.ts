@@ -11,9 +11,21 @@ export const runtime = "nodejs";
 // 답변 하나만 다듬는 요청이므로 각 필드 길이를 짧게 제한한다(비용 최소화).
 const MAX_TEXT_LENGTH = 500;
 const MAX_CONTEXT_FIELD_LENGTH = 100;
+// "직접 입력" 지시문은 짧은 한 마디 정도만 받는다(예: "조금 더 차갑게").
+const MAX_CUSTOM_INSTRUCTION_LENGTH = 60;
 
 const GENERIC_ERROR_MESSAGE = "답변을 조정하지 못했습니다. 다시 시도해주세요.";
-const ADJUSTMENTS: readonly RefineAdjustment[] = ["shorter", "friendlier", "polite"];
+const ADJUSTMENTS: readonly RefineAdjustment[] = [
+  "shorter",
+  "softer",
+  "friendlier",
+  "polite",
+  "natural",
+  "noQuestion",
+  "emojiAdd",
+  "emojiRemove",
+  "custom",
+];
 
 function isAdjustment(value: unknown): value is RefineAdjustment {
   return typeof value === "string" && (ADJUSTMENTS as readonly string[]).includes(value);
@@ -32,19 +44,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
 
-  const { text, adjustment, language, relationship, goal, tone } = (body ?? {}) as {
-    text?: unknown;
-    adjustment?: unknown;
-    language?: unknown;
-    relationship?: unknown;
-    goal?: unknown;
-    tone?: unknown;
-  };
+  const { text, adjustment, customInstruction, language, relationship, goal, tone, speechLevel } =
+    (body ?? {}) as {
+      text?: unknown;
+      adjustment?: unknown;
+      customInstruction?: unknown;
+      language?: unknown;
+      relationship?: unknown;
+      goal?: unknown;
+      tone?: unknown;
+      speechLevel?: unknown;
+    };
 
   if (typeof text !== "string" || text.trim().length === 0) {
     return NextResponse.json({ error: "조정할 답변이 없습니다." }, { status: 400 });
   }
   if (!isAdjustment(adjustment)) {
+    return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
+  }
+  if (
+    adjustment === "custom" &&
+    (typeof customInstruction !== "string" || customInstruction.trim().length === 0)
+  ) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
 
@@ -71,10 +92,15 @@ export async function POST(request: Request) {
           content: buildRefinePrompt({
             text: text.trim().slice(0, MAX_TEXT_LENGTH),
             adjustment,
+            customInstruction:
+              adjustment === "custom" && typeof customInstruction === "string"
+                ? customInstruction.trim().slice(0, MAX_CUSTOM_INSTRUCTION_LENGTH)
+                : undefined,
             language: toContextField(language, "알 수 없음"),
             relationship: toContextField(relationship, "자동 판단"),
             goal: toContextField(goal, "자동 추천"),
             tone: toContextField(tone, "알 수 없음"),
+            speechLevel: toContextField(speechLevel, "자동"),
           }),
         },
       ],

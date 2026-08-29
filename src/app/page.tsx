@@ -84,6 +84,15 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [refiningIndex, setRefiningIndex] = useState<number | null>(null);
+  // 다듬기 직후 "수정됨" 표시(잠깐)와 "되돌리기"(한 단계) 기능을 위한 상태.
+  // 복잡한 버전 히스토리는 만들지 않고, 가장 최근 다듬기 1건만 기억한다.
+  const [justRefinedIndex, setJustRefinedIndex] = useState<number | null>(null);
+  const [lastRefine, setLastRefine] = useState<{
+    index: number;
+    previousText: string;
+    previousTranslationKo: string | null;
+  } | null>(null);
+  const justRefinedTimeoutRef = useRef<number | null>(null);
   const isRequestInFlight = useRef(false);
   // 긴 대화에서 서버가 만든 핵심 맥락을 브라우저 세션 동안만 재사용한다(서버 저장 없음).
   // 같은 대화 텍스트일 때만 재사용하고, 대화가 바뀌면 자동으로 무시된다.
@@ -138,9 +147,22 @@ export default function Home() {
   // 결과가 뒤섞이지 않도록).
   const isBusy = isLoading || refiningIndex !== null;
 
+  // "수정됨" 표시 타이머와 "되돌리기" 대상을 함께 초기화한다.
+  const clearRefineIndicators = () => {
+    if (justRefinedTimeoutRef.current !== null) {
+      window.clearTimeout(justRefinedTimeoutRef.current);
+      justRefinedTimeoutRef.current = null;
+    }
+    setJustRefinedIndex(null);
+    setLastRefine(null);
+  };
+
   // 실제 AI 호출. 중복 클릭으로 여러 번 호출되지 않도록 막는다.
   const runAiGenerate = async () => {
     if (isRequestInFlight.current || refiningIndex !== null) return;
+
+    // 새로 답변 4개를 통째로 만드므로, 이전 다듬기의 "되돌리기"/"수정됨" 표시는 더 이상 의미가 없다.
+    clearRefineIndicators();
 
     // 다시 추천 시 같은 문장이 반복되지 않도록 직전 답변을 함께 전달한다(대화 재분석은 하지 않음).
     const previousReplies =
@@ -229,8 +251,13 @@ export default function Home() {
   const handleRecommend = () => void runAiGenerate();
   const handleRetry = () => void runAiGenerate();
 
-  // 답변 카드 하나만 다듬는다. 전체 대화를 다시 분석하지 않고 최소한의 AI 호출로 처리한다.
-  const handleRefine = async (index: number, adjustment: RefineAdjustment) => {
+  // 답변 카드 하나만 다듬는다. 전체 대화를 다시 분석하지 않고, 선택된 답변 + 관계/말투/목적/분위기
+  // 같은 최소한의 맥락만으로 작은 AI 호출 1회를 보낸다. 다른 답변 3개는 건드리지 않는다.
+  const handleRefine = async (
+    index: number,
+    adjustment: RefineAdjustment,
+    customInstruction?: string,
+  ) => {
     if (!aiResult || aiResult.status !== "ok") return;
     if (isRequestInFlight.current || refiningIndex !== null) return;
     const target = aiResult.replies[index];
@@ -238,14 +265,21 @@ export default function Home() {
 
     setRefiningIndex(index);
     setErrorMessage(null);
+    // 새로 다듬기를 시작하면 이전 되돌리기 기록은 의미가 없어진다(한 단계 되돌리기만 지원).
+    clearRefineIndicators();
+
+    const previousText = target.text;
+    const previousTranslationKo = target.translationKo;
 
     const response = await refineReply({
       text: target.text,
       adjustment,
+      customInstruction,
       language: aiResult.language,
       relationship: aiResult.context.relationship,
       goal: aiResult.context.goal,
       tone: aiResult.context.tone,
+      speechLevel,
     });
 
     setRefiningIndex(null);
@@ -262,9 +296,32 @@ export default function Home() {
           ),
         };
       });
+      setLastRefine({ index, previousText, previousTranslationKo });
+      setJustRefinedIndex(index);
+      justRefinedTimeoutRef.current = window.setTimeout(() => {
+        setJustRefinedIndex(null);
+        justRefinedTimeoutRef.current = null;
+      }, 1500);
     } else {
+      // 실패해도 기존 답변은 그대로 유지한다(삭제하지 않음).
       setErrorMessage(response.message);
     }
+  };
+
+  // 다듬기 직후에만 나타나는 한 단계 되돌리기. 복잡한 버전 히스토리는 두지 않는다.
+  const handleUndo = (index: number) => {
+    if (!lastRefine || lastRefine.index !== index) return;
+    const { previousText, previousTranslationKo } = lastRefine;
+    setAiResult((prev) => {
+      if (!prev || prev.status !== "ok") return prev;
+      return {
+        ...prev,
+        replies: prev.replies.map((r, i) =>
+          i === index ? { ...r, text: previousText, translationKo: previousTranslationKo } : r,
+        ),
+      };
+    });
+    clearRefineIndicators();
   };
 
   const displayReplies: DisplayReply[] | null = useMemo(() => {
@@ -407,10 +464,13 @@ export default function Home() {
                   onRefine={
                     reply.emojiOnly
                       ? undefined
-                      : (adjustment) => void handleRefine(i, adjustment)
+                      : (adjustment, customInstruction) =>
+                          void handleRefine(i, adjustment, customInstruction)
                   }
                   isRefining={refiningIndex === i}
                   refineDisabled={isBusy}
+                  justRefined={justRefinedIndex === i}
+                  onUndo={lastRefine?.index === i ? () => handleUndo(i) : undefined}
                 />
               ))}
             </div>

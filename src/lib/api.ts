@@ -74,10 +74,13 @@ export async function generateReplies(
 export interface RefineReplyInput {
   text: string;
   adjustment: RefineAdjustment;
+  /** adjustment가 "custom"일 때만 사용하는 짧은 직접 지시문 */
+  customInstruction?: string;
   language: string;
   relationship: string;
   goal: string;
   tone: string;
+  speechLevel: SpeechLevel;
 }
 
 export type RefineReplyResult =
