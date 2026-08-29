@@ -19,15 +19,12 @@ import {
 import { REPLY_STYLES } from "@/lib/replyStyles";
 import { DEFAULT_SPEECH_LEVEL, SPEECH_LEVELS } from "@/lib/speechLevel";
 import type {
-  AIReplyItem,
-  AIReplyOkResult,
   AIReplyResult,
   ConversationContextData,
   Goal,
   RefineAdjustment,
   Relationship,
   ReplyStyle,
-  ReplyType,
   SpeechLevel,
   UploadedImage,
 } from "@/lib/types";
@@ -35,36 +32,17 @@ import type {
 let imageIdCounter = 0;
 
 interface DisplayReply {
-  type: ReplyType;
+  label: string;
   text: string;
   translation?: string | null;
+  emojiOnly: boolean;
 }
 
-// 아주 작은 유형명. 카드에 짧게만 표시한다(복잡한 분석 결과 아님).
-const TYPE_LABELS: Record<ReplyType, string> = {
-  natural: "자연스럽게",
-  active: "조금 더 적극적으로",
-  emoji_text: "이모티콘과 함께",
-  emoji_only: "이모티콘만",
-};
-
-// AI 응답의 순서가 흐트러져도 natural → active → emoji_text → emoji_only 순서로 정렬한다.
-function orderAiReplies(result: AIReplyOkResult): AIReplyItem[] {
-  const order: ReplyType[] = ["natural", "active", "emoji_text", "emoji_only"];
-  const used = new Set<AIReplyItem>();
-  const ordered: AIReplyItem[] = [];
-
-  for (const type of order) {
-    const found = result.replies.find((r) => r.type === type && !used.has(r));
-    if (found) {
-      ordered.push(found);
-      used.add(found);
-    }
-  }
-  for (const reply of result.replies) {
-    if (!used.has(reply)) ordered.push(reply);
-  }
-  return ordered;
+// 문자/숫자가 전혀 없으면(이모티콘·기호만) 이모티콘 전용 답변으로 간주해 크게 표시하고
+// "더 짧게/더 정중하게" 같은 조정 버튼을 숨긴다. 답변 유형이 더 이상 고정되어 있지 않으므로
+// 내용을 보고 판단한다.
+function looksEmojiOnly(text: string): boolean {
+  return !/[\p{L}\p{N}]/u.test(text);
 }
 
 // 붙여넣기와 직접 입력을 하나의 입력창으로 합친 대신, 내용 형태로 서버 힌트를 자동 판단한다.
@@ -105,7 +83,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [refiningType, setRefiningType] = useState<ReplyType | null>(null);
+  const [refiningIndex, setRefiningIndex] = useState<number | null>(null);
   const isRequestInFlight = useRef(false);
   // 긴 대화에서 서버가 만든 핵심 맥락을 브라우저 세션 동안만 재사용한다(서버 저장 없음).
   // 같은 대화 텍스트일 때만 재사용하고, 대화가 바뀌면 자동으로 무시된다.
@@ -156,9 +134,13 @@ export default function Home() {
     });
   };
 
+  // 어떤 AI 요청이든 하나만 동시에 진행되도록 막는다(답변 추천/다시 추천/답변 조정이 서로 겹쳐
+  // 결과가 뒤섞이지 않도록).
+  const isBusy = isLoading || refiningIndex !== null;
+
   // 실제 AI 호출. 중복 클릭으로 여러 번 호출되지 않도록 막는다.
   const runAiGenerate = async () => {
-    if (isRequestInFlight.current) return;
+    if (isRequestInFlight.current || refiningIndex !== null) return;
 
     // 다시 추천 시 같은 문장이 반복되지 않도록 직전 답변을 함께 전달한다(대화 재분석은 하지 않음).
     const previousReplies =
@@ -248,12 +230,13 @@ export default function Home() {
   const handleRetry = () => void runAiGenerate();
 
   // 답변 카드 하나만 다듬는다. 전체 대화를 다시 분석하지 않고 최소한의 AI 호출로 처리한다.
-  const handleRefine = async (type: ReplyType, adjustment: RefineAdjustment) => {
-    if (!aiResult || aiResult.status !== "ok" || refiningType !== null) return;
-    const target = aiResult.replies.find((r) => r.type === type);
+  const handleRefine = async (index: number, adjustment: RefineAdjustment) => {
+    if (!aiResult || aiResult.status !== "ok") return;
+    if (isRequestInFlight.current || refiningIndex !== null) return;
+    const target = aiResult.replies[index];
     if (!target) return;
 
-    setRefiningType(type);
+    setRefiningIndex(index);
     setErrorMessage(null);
 
     const response = await refineReply({
@@ -265,15 +248,15 @@ export default function Home() {
       tone: aiResult.context.tone,
     });
 
-    setRefiningType(null);
+    setRefiningIndex(null);
 
     if (response.ok) {
       setAiResult((prev) => {
         if (!prev || prev.status !== "ok") return prev;
         return {
           ...prev,
-          replies: prev.replies.map((r) =>
-            r.type === type
+          replies: prev.replies.map((r, i) =>
+            i === index
               ? { ...r, text: response.result.text, translationKo: response.result.translationKo }
               : r,
           ),
@@ -286,14 +269,17 @@ export default function Home() {
 
   const displayReplies: DisplayReply[] | null = useMemo(() => {
     if (!aiResult || aiResult.status !== "ok") return null;
-    return orderAiReplies(aiResult).map((reply) => ({
-      type: reply.type,
+    // 배열 순서 자체가 AI가 정한 추천 우선순위이므로 그대로 사용한다(index 0 = 가장 추천하는 답변).
+    return aiResult.replies.map((reply) => ({
+      label: reply.label,
       text: reply.text,
       translation: reply.translationKo,
+      emojiOnly: looksEmojiOnly(reply.text),
     }));
   }, [aiResult]);
 
-  const quickEmojis = aiResult && aiResult.status === "ok" ? aiResult.quickEmojis : [];
+  const quickReactions =
+    aiResult && aiResult.status === "ok" && aiResult.showQuickReactions ? aiResult.quickReactions : [];
 
   const unreadableMessage =
     aiResult && aiResult.status === "unreadable" ? aiResult.message : null;
@@ -393,7 +379,7 @@ export default function Home() {
 
         <button
           type="button"
-          disabled={!hasInput || isLoading}
+          disabled={!hasInput || isBusy}
           onClick={handleRecommend}
           className="h-14 w-full rounded-xl bg-emerald-600 text-base font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
         >
@@ -410,33 +396,31 @@ export default function Home() {
           <section className="space-y-3">
             <h2 className="text-sm font-semibold text-slate-700">추천 답변</h2>
             <div className="space-y-3">
-              {displayReplies.map((reply, i) => {
-                const emojiOnly = reply.type === "emoji_only";
-                return (
-                  <ReplyResultCard
-                    key={reply.type}
-                    index={i}
-                    text={reply.text}
-                    translation={reply.translation}
-                    emojiOnly={emojiOnly}
-                    typeLabel={TYPE_LABELS[reply.type]}
-                    onRefine={
-                      emojiOnly
-                        ? undefined
-                        : (adjustment) => void handleRefine(reply.type, adjustment)
-                    }
-                    isRefining={refiningType === reply.type}
-                  />
-                );
-              })}
+              {displayReplies.map((reply, i) => (
+                <ReplyResultCard
+                  key={i}
+                  index={i}
+                  text={reply.text}
+                  translation={reply.translation}
+                  emojiOnly={reply.emojiOnly}
+                  typeLabel={reply.label}
+                  onRefine={
+                    reply.emojiOnly
+                      ? undefined
+                      : (adjustment) => void handleRefine(i, adjustment)
+                  }
+                  isRefining={refiningIndex === i}
+                  refineDisabled={isBusy}
+                />
+              ))}
             </div>
 
-            <QuickEmojis emojis={quickEmojis} />
+            <QuickEmojis emojis={quickReactions} />
 
             <button
               type="button"
               onClick={handleRetry}
-              disabled={isLoading}
+              disabled={isBusy}
               className="h-12 w-full rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               다시 추천

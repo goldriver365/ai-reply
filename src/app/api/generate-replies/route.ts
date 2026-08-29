@@ -88,20 +88,25 @@ interface ValidatedImage {
   data: string;
 }
 
-function parseImages(value: unknown): ValidatedImage[] | null {
-  if (!Array.isArray(value) || value.length === 0) return null;
+type ParseImagesResult =
+  | { ok: true; images: ValidatedImage[] }
+  | { ok: false; reason: "empty" | "invalid" | "too_large" };
+
+// 오류 원인을 구분해 사용자에게 정확한 안내를 줄 수 있게 한다(섹션 20: 잘못된 파일/파일 크기
+// 초과를 구분해서 알려준다).
+function parseImages(value: unknown): ParseImagesResult {
+  if (!Array.isArray(value) || value.length === 0) return { ok: false, reason: "empty" };
 
   const result: ValidatedImage[] = [];
   for (const item of value.slice(0, MAX_IMAGES)) {
-    if (typeof item !== "object" || item === null) return null;
+    if (typeof item !== "object" || item === null) return { ok: false, reason: "invalid" };
     const { mediaType, data } = item as { mediaType?: unknown; data?: unknown };
-    if (!isAllowedImageType(mediaType)) return null;
-    if (typeof data !== "string" || data.length === 0 || data.length > MAX_IMAGE_BASE64_LENGTH) {
-      return null;
-    }
+    if (!isAllowedImageType(mediaType)) return { ok: false, reason: "invalid" };
+    if (typeof data !== "string" || data.length === 0) return { ok: false, reason: "invalid" };
+    if (data.length > MAX_IMAGE_BASE64_LENGTH) return { ok: false, reason: "too_large" };
     result.push({ mediaType, data });
   }
-  return result;
+  return { ok: true, images: result };
 }
 
 export async function POST(request: Request) {
@@ -154,11 +159,18 @@ export async function POST(request: Request) {
   let notice: string | undefined;
 
   if (isFileMode) {
-    const validatedImages = parseImages(images);
-    // 빈 입력(이미지 없음)은 API를 호출하지 않는다.
-    if (!validatedImages) {
-      return NextResponse.json({ error: "분석할 이미지가 없습니다." }, { status: 400 });
+    const parsedImages = parseImages(images);
+    if (!parsedImages.ok) {
+      // 빈 입력(이미지 없음)은 API를 호출하지 않는다. 그 외에는 원인을 구분해 안내한다.
+      const message =
+        parsedImages.reason === "empty"
+          ? "분석할 이미지가 없습니다."
+          : parsedImages.reason === "too_large"
+            ? "이미지 용량이 너무 큽니다. 더 작은 이미지로 다시 시도해주세요."
+            : "지원하지 않는 이미지 형식입니다. JPG·PNG·WEBP 파일만 첨부해주세요.";
+      return NextResponse.json({ error: message }, { status: 400 });
     }
+    const validatedImages = parsedImages.images;
 
     const resolvedNote =
       typeof note === "string" && note.trim().length > 0
@@ -293,10 +305,17 @@ export async function POST(request: Request) {
       ...(notice ? { notice } : {}),
     });
   } catch (error) {
+    // 대화 원문은 절대 로그에 남기지 않는다. 오류 종류/상태 코드 등 메타데이터만 남긴다.
     if (error instanceof Anthropic.APIError) {
-      console.error("generate-replies Anthropic API error", error.status, error.message);
+      console.error("generate-replies Anthropic API error", {
+        status: error.status,
+        name: error.name,
+      });
     } else {
-      console.error("generate-replies failed", error);
+      console.error("generate-replies failed", {
+        name: error instanceof Error ? error.name : "unknown",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
     return NextResponse.json({ error: GENERIC_ERROR_MESSAGE }, { status: 502 });
   }

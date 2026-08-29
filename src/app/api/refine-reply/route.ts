@@ -87,10 +87,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ result: parsed });
   } catch (error) {
+    // 답변 원문은 로그에 남기지 않는다. 오류 종류/상태 코드 등 메타데이터만 남긴다.
     if (error instanceof Anthropic.APIError) {
-      console.error("refine-reply Anthropic API error", error.status, error.message);
+      console.error("refine-reply Anthropic API error", { status: error.status, name: error.name });
     } else {
-      console.error("refine-reply failed", error);
+      console.error("refine-reply failed", {
+        name: error instanceof Error ? error.name : "unknown",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
     return NextResponse.json({ error: GENERIC_ERROR_MESSAGE }, { status: 502 });
   }

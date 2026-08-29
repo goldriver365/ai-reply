@@ -18,6 +18,7 @@ export default function ReplyResultCard({
   typeLabel,
   onRefine,
   isRefining,
+  refineDisabled,
 }: {
   index: number;
   text: string;
@@ -29,7 +30,10 @@ export default function ReplyResultCard({
   typeLabel?: string;
   /** 이 카드의 답변만 다듬어달라는 요청. 생략하면 조정 버튼을 표시하지 않는다. */
   onRefine?: (adjustment: RefineAdjustment) => void;
+  /** 지금 이 카드가 다듬어지는 중인지(조정 중... 표시) */
   isRefining?: boolean;
+  /** 다른 AI 요청이 진행 중이라 이 카드의 조정 버튼도 눌러선 안 되는지 */
+  refineDisabled?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -84,7 +88,7 @@ export default function ReplyResultCard({
               key={option.value}
               type="button"
               onClick={() => onRefine(option.value)}
-              disabled={isRefining}
+              disabled={isRefining || refineDisabled}
               className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {option.label}

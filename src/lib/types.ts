@@ -56,23 +56,32 @@ export type RefineAdjustment = "shorter" | "friendlier" | "polite";
 // 말투 지정. "자동"이면 AI가 대화에서 관찰한 사용자의 평소 말투를 따른다.
 export type SpeechLevel = "자동" | "반말" | "존댓말";
 
-// AI가 생성하는 답변 4개의 형태 구분(STEP 6)
-// natural: 가장 자연스럽고 안전한 답변 / active: 조금 더 적극적으로 대화를 이어가는 답변
-// emoji_text: 문장 + 이모티콘 조합 / emoji_only: 표준 유니코드 이모티콘만으로 구성된 답변
-export type ReplyType = "natural" | "active" | "emoji_text" | "emoji_only";
+// 대화 상황 분류(STEP 8). 답변 4개의 역할은 고정 유형이 아니라 이 situation에 따라 달라진다.
+export type ReplySituation =
+  | "general"
+  | "schedule"
+  | "decline"
+  | "work"
+  | "conflict"
+  | "apology"
+  | "comfort"
+  | "casual";
 
+// AI가 생성하는 답변 1개(STEP 8). 배열 안에서의 순서가 곧 추천 우선순위이며,
+// label은 상황에 맞게 AI가 자유롭게 정하는 짧은 유형명이다(고정된 목록이 아님).
 export interface AIReplyItem {
-  type: ReplyType;
+  label: string;
   text: string;
   /** text가 한국어가 아닐 때의 한국어 번역. 한국어 답변이면 null. */
   translationKo: string | null;
 }
 
-// 실제로 반영된 관계/목적/대화 분위기 요약. 사용자에게 그대로 노출하지 않는 내부 참고 정보.
+// 실제로 반영된 관계/목적/대화 분위기/상황 요약. 사용자에게 그대로 노출하지 않는 내부 참고 정보.
 export interface AIReplyContext {
   relationship: string;
   goal: string;
   tone: string;
+  situation: ReplySituation;
 }
 
 export interface AIReplyOkResult {
@@ -80,9 +89,12 @@ export interface AIReplyOkResult {
   language: string;
   confidence: "low" | "medium" | "high";
   context: AIReplyContext;
+  /** 상황에 맞게 역할이 달라지는 답변 4개. index 0이 가장 추천하는 답변이다. */
   replies: AIReplyItem[];
-  /** 현재 대화 분위기에 어울리는 표준 유니코드 이모티콘 몇 개(이모티콘만 보내기 영역용) */
-  quickEmojis: string[];
+  /** 현재 대화 분위기에 어울리는 짧은 리액션(이모티콘 또는 "ㅋㅋ" 등). 이모티콘만 보내기 영역용 */
+  quickReactions: string[];
+  /** 짧은 리액션만으로 답하는 것이 지금 상황에 적절한지. false면 이모티콘만 보내기 영역을 숨긴다. */
+  showQuickReactions: boolean;
 }
 
 // 이미지를 정확히 읽을 수 없는 등, 답변을 억지로 만들지 않고 사용자에게 안내만 하는 경우
