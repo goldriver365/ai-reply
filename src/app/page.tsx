@@ -14,6 +14,7 @@ import type {
   AIReplyItem,
   AIReplyOkResult,
   AIReplyResult,
+  ConversationContextData,
   Goal,
   InputMode,
   RefineAdjustment,
@@ -64,8 +65,15 @@ export default function Home() {
   const [aiResult, setAiResult] = useState<AIReplyResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [refiningType, setRefiningType] = useState<ReplyType | null>(null);
   const isRequestInFlight = useRef(false);
+  // 긴 대화에서 서버가 만든 핵심 맥락을 브라우저 세션 동안만 재사용한다(서버 저장 없음).
+  // 같은 대화 텍스트일 때만 재사용하고, 대화가 바뀌면 자동으로 무시된다.
+  const conversationContextCacheRef = useRef<{
+    conversation: string;
+    context: ConversationContextData;
+  } | null>(null);
 
   const hasInput = useMemo(() => {
     if (mode === "paste") return pasteText.trim().length > 0;
@@ -77,6 +85,8 @@ export default function Home() {
     setMode(nextMode);
     setAiResult(null);
     setErrorMessage(null);
+    setNotice(null);
+    conversationContextCacheRef.current = null;
   };
 
   const handleAddImages = (files: FileList) => {
@@ -129,6 +139,7 @@ export default function Home() {
       isRequestInFlight.current = true;
       setIsLoading(true);
       setErrorMessage(null);
+      setNotice(null);
 
       let resizedImages;
       try {
@@ -166,9 +177,16 @@ export default function Home() {
     const conversation = mode === "write" ? writeText : pasteText;
     if (conversation.trim().length === 0) return;
 
+    // 같은 대화라면 이전에 캐시해둔 핵심 맥락을 재사용해 긴 대화를 다시 요약하지 않는다.
+    const cachedContext =
+      conversationContextCacheRef.current?.conversation === conversation
+        ? conversationContextCacheRef.current.context
+        : undefined;
+
     isRequestInFlight.current = true;
     setIsLoading(true);
     setErrorMessage(null);
+    setNotice(null);
 
     const response = await generateReplies({
       inputMode: mode,
@@ -177,6 +195,7 @@ export default function Home() {
       goal,
       previousReplies,
       conversation,
+      conversationContext: cachedContext,
     });
 
     isRequestInFlight.current = false;
@@ -184,6 +203,10 @@ export default function Home() {
 
     if (response.ok) {
       setAiResult(response.result);
+      setNotice(response.notice ?? null);
+      conversationContextCacheRef.current = response.conversationContext
+        ? { conversation, context: response.conversationContext }
+        : null;
     } else {
       setAiResult(null);
       setErrorMessage(response.message);
@@ -328,6 +351,7 @@ export default function Home() {
         {unreadableMessage && (
           <p className="text-center text-sm text-amber-600">{unreadableMessage}</p>
         )}
+        {notice && <p className="text-center text-xs text-slate-400">{notice}</p>}
 
         {displayReplies && (
           <section className="space-y-3">

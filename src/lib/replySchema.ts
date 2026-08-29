@@ -98,3 +98,40 @@ export const RefineResponseSchema = z.object({
     .nullable()
     .describe("text가 한국어가 아닐 때의 한국어 뜻. text가 한국어면 null."),
 });
+
+// 긴 대화의 "과거" 부분에서 핵심 맥락만 추출하는 요약 전용 스키마(STEP 5).
+// src/lib/types.ts 의 ConversationContextData / StyleProfile 과 구조를 반드시 맞춘다.
+// 장문 설명이 아닌 최소한의 정보만 담도록 각 필드를 짧게 요구한다.
+const StyleProfileSchema = z.object({
+  speechLevel: z.string().min(1).describe("존댓말/반말 등 격식 수준을 짧게 (예: '반말', '존댓말')"),
+  averageLength: z.string().min(1).describe("평소 메시지 길이 경향을 짧게 (예: '짧은 편', '보통')"),
+  emojiUsage: z.string().min(1).describe("이모티콘/이모지 사용 정도를 짧게"),
+  laughterStyle: z.string().min(1).describe("ㅋㅋ/ㅎㅎ 등 웃음 표현 사용 정도를 짧게"),
+  directness: z.string().min(1).describe("직접적/간접적 표현 성향을 짧게"),
+});
+
+export const ConversationContextSchema = z.object({
+  relationshipSummary: z
+    .string()
+    .min(1)
+    .describe("두 사람의 관계를 한두 문장으로 짧게 요약. 대화에 실제로 나타난 근거만 사용한다."),
+  userStyle: StyleProfileSchema.describe("사용자('나')의 평소 말투"),
+  otherPersonStyle: StyleProfileSchema.describe("상대방의 평소 말투"),
+  importantHistory: z
+    .array(z.string().min(1))
+    .describe(
+      "현재 대화 이해에 직접 영향을 줄 가능성이 높은 과거 사건만 최대 6개. 대화에 실제로 없는 " +
+        "내용을 만들어내지 않는다. 확실하지 않은 정보(예: '아마 다음 주였던 것 같다')는 확정된 " +
+        "사실처럼 적지 않는다.",
+    ),
+  openLoops: z
+    .array(z.string().min(1))
+    .describe("아직 해결되지 않은 질문·약속·갈등·요청을 최대 5개."),
+  emotionalTrend: z
+    .string()
+    .min(1)
+    .describe(
+      "대화 흐름에서 관찰되는 감정 분위기의 변화를 한 문장으로. 확정적인 심리 진단 표현은 쓰지 않는다.",
+    ),
+  recentContext: z.string().min(1).describe("가장 최근 상황을 한두 문장으로."),
+});

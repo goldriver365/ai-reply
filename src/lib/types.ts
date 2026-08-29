@@ -101,3 +101,24 @@ export interface RefineResponse {
   text: string;
   translationKo: string | null;
 }
+
+// 긴 대화에서 추출한 말투 특징(STEP 5)
+export interface StyleProfile {
+  speechLevel: string;
+  averageLength: string;
+  emojiUsage: string;
+  laughterStyle: string;
+  directness: string;
+}
+
+// 긴 대화를 매번 전체로 보내지 않기 위한 핵심 맥락 요약(STEP 5).
+// 장문 설명이 아닌 최소한의 정보만 담는다. 브라우저 세션 동안만 재사용하고 서버에 저장하지 않는다.
+export interface ConversationContextData {
+  relationshipSummary: string;
+  userStyle: StyleProfile;
+  otherPersonStyle: StyleProfile;
+  importantHistory: string[];
+  openLoops: string[];
+  emotionalTrend: string;
+  recentContext: string;
+}

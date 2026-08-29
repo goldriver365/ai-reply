@@ -1,4 +1,10 @@
-import type { Goal, Relationship, RefineAdjustment, ReplyStyle } from "./types";
+import type {
+  ConversationContextData,
+  Goal,
+  Relationship,
+  RefineAdjustment,
+  ReplyStyle,
+} from "./types";
 
 const STYLE_GUIDE: Record<ReplyStyle, string> = {
   자연스럽게: "가장 무난하고 자연스러운 어조. 꾸미거나 과장하지 않는다.",
@@ -57,6 +63,7 @@ export const REPLY_SYSTEM_PROMPT = `당신은 사람과 사람 사이의 실제 
 
 대화가 짧으면 전체를 분석한다. 대화가 길면 최근 흐름을 우선 분석하되, 다음과 같은 표현이나 상황이 있으면 이전 대화 내용을 반드시 참고한다:
 "전에", "지난번", "그때", "아까", "내가 말했잖아", 약속, 이전 갈등, 이전 거절, 이전 동의, 감정 변화. 사용자가 이미 했던 말을 다시 제안하지 않는다.
+매우 긴 대화는 오래된 부분이 미리 핵심 맥락으로 요약되어 전달될 수 있다. 이 경우 그 요약을 신뢰하되, 요약에 없는 세부 사항(정확한 시간·장소 등)을 추측해서 만들어내지 않는다. 최근 대화 원문과 요약이 서로 다르게 느껴지면 최근 대화 원문을 우선한다.
 
 [답변 3개 생성 규칙]
 항상 서로 전략이 분명하게 다른 답변 3개를 만든다. 단어 몇 개만 바꾸는 방식은 금지한다.
@@ -115,15 +122,50 @@ function formatPreviousReplies(previousReplies?: string[]): string | null {
   return previousReplies.map((text, i) => `${i + 1}. ${text}`).join("\n");
 }
 
+// 짧은 대화는 전체를 그대로("full"), 긴 대화는 "최근 대화 + 요약된 과거 맥락"
+// ("recentWithContext")으로 대체해 매번 전체 대화를 보내지 않는다(STEP 5).
+export type ConversationInput =
+  | { kind: "full"; conversation: string }
+  | { kind: "recentWithContext"; recentConversation: string; context: ConversationContextData };
+
+function formatStyleProfile(profile: ConversationContextData["userStyle"]): string {
+  return [
+    profile.speechLevel,
+    profile.averageLength,
+    profile.emojiUsage,
+    profile.laughterStyle,
+    profile.directness,
+  ]
+    .filter((v) => v && v.trim().length > 0)
+    .join(" / ");
+}
+
+function formatConversationContext(context: ConversationContextData): string {
+  const lines = [`- 관계 요약: ${context.relationshipSummary}`];
+  lines.push(`- 사용자 말투: ${formatStyleProfile(context.userStyle)}`);
+  lines.push(`- 상대방 말투: ${formatStyleProfile(context.otherPersonStyle)}`);
+  if (context.importantHistory.length > 0) {
+    lines.push("- 중요 이력:");
+    context.importantHistory.forEach((item) => lines.push(`  · ${item}`));
+  }
+  if (context.openLoops.length > 0) {
+    lines.push("- 아직 해결되지 않은 이야기:");
+    context.openLoops.forEach((item) => lines.push(`  · ${item}`));
+  }
+  lines.push(`- 최근 감정 분위기 변화: ${context.emotionalTrend}`);
+  lines.push(`- 직전 상황: ${context.recentContext}`);
+  return lines.join("\n");
+}
+
 export function buildUserPrompt(params: {
-  conversation: string;
+  conversationInput: ConversationInput;
   style: ReplyStyle;
   inputMode: "paste" | "write";
   relationship: Relationship;
   goal: Goal;
   previousReplies?: string[];
 }): string {
-  const { conversation, style, inputMode, relationship, goal, previousReplies } = params;
+  const { conversationInput, style, inputMode, relationship, goal, previousReplies } = params;
 
   const modeNote =
     inputMode === "write"
@@ -142,13 +184,27 @@ export function buildUserPrompt(params: {
     lines.push("[이전에 추천한 답변]", previous);
   }
 
-  lines.push(
-    "[대화 내용 시작]",
-    conversation,
-    "[대화 내용 끝]",
-    "",
-    "위 대화를 분석해 사용자가 다음에 보낼 답변 3개를 생성하라.",
-  );
+  if (conversationInput.kind === "full") {
+    lines.push(
+      "[대화 내용 시작]",
+      conversationInput.conversation,
+      "[대화 내용 끝]",
+      "",
+      "위 대화를 분석해 사용자가 다음에 보낼 답변 3개를 생성하라.",
+    );
+  } else {
+    lines.push(
+      "이 대화는 매우 길어서 오래된 부분은 아래처럼 핵심 맥락만 미리 요약해 전달한다. " +
+        "요약에 없는 세부 표현은 확정된 사실로 간주하지 말고, 최근 대화 원문을 최우선으로 참고하라.",
+      "[과거 핵심 맥락 요약]",
+      formatConversationContext(conversationInput.context),
+      "[최근 대화 시작]",
+      conversationInput.recentConversation,
+      "[최근 대화 끝]",
+      "",
+      "위 맥락과 최근 대화를 분석해 사용자가 다음에 보낼 답변 3개를 생성하라.",
+    );
+  }
 
   return lines.join("\n");
 }
@@ -226,5 +282,33 @@ export function buildRefinePrompt(params: {
     `[현재 대화 분위기] ${tone}`,
     "",
     "위 답변을 조정 요청에 맞게 한 문장으로 다시 작성하라.",
+  ].join("\n");
+}
+
+// 매우 긴 대화의 "오래된" 부분에서 핵심 맥락만 뽑아내는 전용 시스템 프롬프트(STEP 5).
+// 이 요약은 답변 생성 자체가 목적이 아니라, 다음 답변 생성 요청에서 재사용할 최소한의
+// 정보만 만드는 것이 목적이다. 한 번 만들면 같은 대화에 대해서는(다시 추천 등) 재사용한다.
+export const SUMMARIZE_SYSTEM_PROMPT = `당신은 두 사람의 오래된 대화 기록에서, 나중에 다음 답장을 만들 때 필요한 핵심 정보만 짧게 추출하는 도우미다.
+장문의 설명을 만들지 않는다. 각 항목은 최대한 짧게 적는다.
+대화에 실제로 없는 사건, 시간, 장소를 만들어내지 않는다. "아마 다음 주였던 것 같다"처럼 불확실하게 언급된 내용은 확정된 일정이나 사실로 바꿔 적지 않는다.
+확실한 정보와 추정 정보를 구분하고, 근거가 약하면 그렇게 표현하거나 과감히 생략한다.
+
+다음 항목을 채운다.
+- relationshipSummary: 두 사람의 관계를 한두 문장으로.
+- userStyle / otherPersonStyle: 각자의 말투를 speechLevel(존댓말/반말 등)/averageLength(평소 메시지 길이)/emojiUsage(이모티콘 사용)/laughterStyle(ㅋㅋ·ㅎㅎ 등)/directness(직접적·간접적 표현)로 짧게.
+- importantHistory: 현재 대화 이해에 직접 영향을 줄 가능성이 높은 과거 사건만 최대 6개(약속, 갈등, 사과, 거절, 중요한 질문, 반복되는 문제, 호감 표현, 거리두기 등). 현재와 관련성이 낮은 옛날 이야기는 넣지 않는다.
+- openLoops: 아직 해결되지 않은 질문·약속·갈등·요청을 최대 5개.
+- emotionalTrend: 대화 흐름에서 관찰되는 감정 분위기 변화를 한 문장으로. "상대방은 화가 났다"처럼 확정적인 심리 진단 표현은 쓰지 않고, 관찰된 신호 중심으로 적는다.
+- recentContext: 요약 대상 구간에서 가장 최근 상황을 한두 문장으로.
+
+응답은 반드시 주어진 JSON 스키마 형식으로만 출력한다. 스키마 이외의 설명은 출력하지 않는다.`;
+
+export function buildSummarizePrompt(params: { olderConversation: string }): string {
+  return [
+    "[요약할 이전 대화 시작]",
+    params.olderConversation,
+    "[요약할 이전 대화 끝]",
+    "",
+    "위 대화에서 다음 답장을 만드는 데 필요한 핵심 맥락만 추출하라.",
   ].join("\n");
 }
