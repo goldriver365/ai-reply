@@ -60,7 +60,8 @@ export type RefineAdjustment =
   | "noQuestion"
   | "emojiAdd"
   | "emojiRemove"
-  | "custom";
+  | "custom"
+  | "myStyle";
 
 // 말투 지정. "자동"이면 AI가 대화에서 관찰한 사용자의 평소 말투를 따른다.
 export type SpeechLevel = "자동" | "반말" | "존댓말";
@@ -133,6 +134,13 @@ export interface StyleProfile {
   emojiUsage: string;
   laughterStyle: string;
   directness: string;
+}
+
+// 사용자가 "내 말투 기억"으로 opt-in 등록한 평소 말투(STEP 10).
+// 대화 "내용"이 아니라 문체 스타일만 담으며, 이 기기(localStorage)에만 저장하고 서버에는 저장하지 않는다.
+export interface UserStyleProfile extends StyleProfile {
+  /** 이 스타일 추정에 대한 확신도. 화면에는 숫자로 노출하지 않는다. */
+  confidence: "low" | "medium" | "high";
 }
 
 // 긴 대화를 매번 전체로 보내지 않기 위한 핵심 맥락 요약(STEP 5).

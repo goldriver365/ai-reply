@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ChipSelect from "@/components/ChipSelect";
 import ImageUploader, { MAX_IMAGES } from "@/components/ImageUploader";
 import LabeledSelect from "@/components/LabeledSelect";
 import QuickEmojis from "@/components/QuickEmojis";
 import ReplyResultCard from "@/components/ReplyResultCard";
 import StyleSelector from "@/components/StyleSelector";
-import { generateReplies, refineReply } from "@/lib/api";
+import { analyzeMyStyle, generateReplies, refineReply } from "@/lib/api";
 import { resizeImageFile } from "@/lib/imageResize";
 import {
   DEFAULT_GOAL,
@@ -18,6 +18,7 @@ import {
 } from "@/lib/relationshipGoal";
 import { REPLY_STYLES } from "@/lib/replyStyles";
 import { DEFAULT_SPEECH_LEVEL, SPEECH_LEVELS } from "@/lib/speechLevel";
+import { clearUserStyleProfile, loadUserStyleProfile, saveUserStyleProfile } from "@/lib/userStyle";
 import type {
   AIReplyResult,
   ConversationContextData,
@@ -27,7 +28,12 @@ import type {
   ReplyStyle,
   SpeechLevel,
   UploadedImage,
+  UserStyleProfile,
 } from "@/lib/types";
+
+// "내 말투 기억"에는 최소 2개, 최대 5개의 예시 메시지를 받는다(STEP 10).
+const MIN_MY_STYLE_SAMPLES = 2;
+const MAX_MY_STYLE_SAMPLES = 5;
 
 let imageIdCounter = 0;
 
@@ -94,6 +100,23 @@ export default function Home() {
   } | null>(null);
   const justRefinedTimeoutRef = useRef<number | null>(null);
   const isRequestInFlight = useRef(false);
+
+  // "내 말투"(STEP 10): 사용자가 opt-in으로 등록한 경우에만 존재하며, 이 기기(localStorage)에만
+  // 저장된다. SSR 중에는 localStorage가 없으므로 마운트 후 useEffect에서 불러온다.
+  const [myStyleProfile, setMyStyleProfile] = useState<UserStyleProfile | null>(null);
+  const [showMyStylePanel, setShowMyStylePanel] = useState(false);
+  const [myStyleSamples, setMyStyleSamples] = useState("");
+  const [myStyleBusy, setMyStyleBusy] = useState(false);
+  const [myStyleError, setMyStyleError] = useState<string | null>(null);
+  const [myStyleNotice, setMyStyleNotice] = useState<string | null>(null);
+  const myStyleNoticeTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    // localStorage는 브라우저에만 있어 서버 렌더링 시점에는 읽을 수 없다. 마운트 후 한 번만
+    // 이 외부 저장소와 동기화한다(하이드레이션 불일치를 피하기 위한 의도적인 지연 로드).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMyStyleProfile(loadUserStyleProfile());
+  }, []);
   // 긴 대화에서 서버가 만든 핵심 맥락을 브라우저 세션 동안만 재사용한다(서버 저장 없음).
   // 같은 대화 텍스트일 때만 재사용하고, 대화가 바뀌면 자동으로 무시된다.
   const conversationContextCacheRef = useRef<{
@@ -194,6 +217,7 @@ export default function Home() {
         previousReplies,
         images: resizedImages,
         note: conversationText.trim().length > 0 ? conversationText.trim() : undefined,
+        myStyle: myStyleProfile ?? undefined,
       });
 
       isRequestInFlight.current = false;
@@ -231,6 +255,7 @@ export default function Home() {
       previousReplies,
       conversation,
       conversationContext: cachedContext,
+      myStyle: myStyleProfile ?? undefined,
     });
 
     isRequestInFlight.current = false;
@@ -280,6 +305,7 @@ export default function Home() {
       goal: aiResult.context.goal,
       tone: aiResult.context.tone,
       speechLevel,
+      myStyle: adjustment === "myStyle" ? (myStyleProfile ?? undefined) : undefined,
     });
 
     setRefiningIndex(null);
@@ -322,6 +348,61 @@ export default function Home() {
       };
     });
     clearRefineIndicators();
+  };
+
+  // "내 말투" 등록/삭제 확인 문구를 잠깐 보여주고 지운다(성가신 배지가 계속 남지 않도록).
+  const showMyStyleNotice = (text: string) => {
+    if (myStyleNoticeTimeoutRef.current !== null) {
+      window.clearTimeout(myStyleNoticeTimeoutRef.current);
+    }
+    setMyStyleNotice(text);
+    myStyleNoticeTimeoutRef.current = window.setTimeout(() => {
+      setMyStyleNotice(null);
+      myStyleNoticeTimeoutRef.current = null;
+    }, 2500);
+  };
+
+  // "내 말투 기억"(STEP 10). 예시 메시지에서 스타일만 뽑아내는 작은 AI 호출 1회.
+  // 예시 원문은 응답 처리 후 화면에도, 이 기기 저장소에도 남기지 않는다(스타일 값만 저장).
+  const handleRegisterMyStyle = async () => {
+    if (myStyleBusy) return;
+    const samples = myStyleSamples
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .slice(0, MAX_MY_STYLE_SAMPLES);
+
+    if (samples.length < MIN_MY_STYLE_SAMPLES) {
+      setMyStyleError(`메시지를 ${MIN_MY_STYLE_SAMPLES}개 이상 입력해주세요.`);
+      return;
+    }
+
+    setMyStyleBusy(true);
+    setMyStyleError(null);
+
+    const response = await analyzeMyStyle(samples);
+
+    setMyStyleBusy(false);
+
+    if (response.ok) {
+      saveUserStyleProfile(response.profile);
+      setMyStyleProfile(response.profile);
+      setMyStyleSamples(""); // 예시 원문은 화면에도 계속 보관하지 않는다.
+      setShowMyStylePanel(false);
+      showMyStyleNotice("내 말투를 기억했어요.");
+    } else {
+      setMyStyleError(response.message);
+    }
+  };
+
+  // 기기에 저장된 말투 프로필을 즉시 제거한다. 별도 계정이 없으므로 복잡한 절차는 두지 않는다.
+  const handleDeleteMyStyle = () => {
+    clearUserStyleProfile();
+    setMyStyleProfile(null);
+    setShowMyStylePanel(false);
+    setMyStyleSamples("");
+    setMyStyleError(null);
+    showMyStyleNotice("내 말투를 삭제했어요.");
   };
 
   const displayReplies: DisplayReply[] | null = useMemo(() => {
@@ -430,6 +511,83 @@ export default function Home() {
                 <span className="text-xs font-medium text-slate-500">답변 스타일</span>
                 <StyleSelector value={style} onChange={setStyle} />
               </div>
+
+              <div className="space-y-2 border-t border-slate-100 pt-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-500">내 말투</span>
+                  {myStyleProfile ? (
+                    <button
+                      type="button"
+                      onClick={handleDeleteMyStyle}
+                      className="text-xs font-medium text-slate-400 hover:text-red-500"
+                    >
+                      내 말투 삭제
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMyStylePanel((prev) => !prev);
+                        setMyStyleError(null);
+                      }}
+                      className="text-xs font-medium text-emerald-600 hover:underline"
+                    >
+                      {showMyStylePanel ? "닫기" : "내 말투 기억"}
+                    </button>
+                  )}
+                </div>
+
+                {myStyleProfile && (
+                  <p className="text-[11px] text-slate-400">
+                    저장된 내 말투를 답변에 참고해요. (자동, 이 기기에만 저장됨)
+                  </p>
+                )}
+
+                {!myStyleProfile && showMyStylePanel && (
+                  <div className="space-y-2 rounded-lg bg-stone-50 p-2">
+                    <p className="text-[11px] text-slate-500">
+                      평소 내가 보낸 메시지 {MIN_MY_STYLE_SAMPLES}~{MAX_MY_STYLE_SAMPLES}개를 한 줄씩
+                      붙여넣어 주세요.
+                    </p>
+                    <textarea
+                      value={myStyleSamples}
+                      onChange={(event) => setMyStyleSamples(event.target.value)}
+                      placeholder={
+                        "ㅋㅋ 그건 좀 웃기다\n나 오늘은 조금 늦을 것 같아\n응 괜찮아 천천히 와"
+                      }
+                      className="h-24 w-full resize-none rounded-lg border border-slate-200 bg-white p-2 text-xs leading-relaxed text-slate-900 outline-none focus:border-emerald-400"
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      문장 내용이 아닌 말투 특징만 기억합니다.
+                    </p>
+                    {myStyleError && <p className="text-[11px] text-red-500">{myStyleError}</p>}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleRegisterMyStyle()}
+                        disabled={myStyleBusy}
+                        className="h-8 flex-1 rounded-lg bg-emerald-600 text-xs font-medium text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                      >
+                        {myStyleBusy ? "기억하는 중..." : "말투 기억하기"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMyStylePanel(false);
+                          setMyStyleSamples("");
+                          setMyStyleError(null);
+                        }}
+                        disabled={myStyleBusy}
+                        className="h-8 shrink-0 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {myStyleNotice && <p className="text-[11px] text-emerald-600">{myStyleNotice}</p>}
+              </div>
             </div>
           )}
         </div>
@@ -471,6 +629,7 @@ export default function Home() {
                   refineDisabled={isBusy}
                   justRefined={justRefinedIndex === i}
                   onUndo={lastRefine?.index === i ? () => handleUndo(i) : undefined}
+                  hasMyStyle={!!myStyleProfile}
                 />
               ))}
             </div>

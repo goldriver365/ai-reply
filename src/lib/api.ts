@@ -8,6 +8,7 @@ import type {
   ReplyStyle,
   ResizedImagePayload,
   SpeechLevel,
+  UserStyleProfile,
 } from "./types";
 
 export type GenerateRepliesInput = {
@@ -22,6 +23,8 @@ export type GenerateRepliesInput = {
    * 서버가 과거 부분을 다시 요약하지 않고 재사용해 AI 호출을 줄인다(긴 대화 "다시 추천" 등).
    */
   conversationContext?: ConversationContextData;
+  /** 사용자가 opt-in으로 등록해 이 기기에 저장해둔 "내 말투"(STEP 10). 없으면 전달하지 않는다. */
+  myStyle?: UserStyleProfile;
 } & (
   | { inputMode: "paste" | "write"; conversation: string }
   | { inputMode: "file"; images: ResizedImagePayload[]; note?: string }
@@ -81,6 +84,8 @@ export interface RefineReplyInput {
   goal: string;
   tone: string;
   speechLevel: SpeechLevel;
+  /** adjustment가 "myStyle"일 때만 사용하는, 이 기기에 저장된 "내 말투" */
+  myStyle?: UserStyleProfile;
 }
 
 export type RefineReplyResult =
@@ -108,5 +113,36 @@ export async function refineReply(input: RefineReplyInput): Promise<RefineReplyR
     return { ok: true, result: data.result };
   } catch {
     return { ok: false, message: REFINE_FAILURE_MESSAGE };
+  }
+}
+
+export type AnalyzeMyStyleResult =
+  | { ok: true; profile: UserStyleProfile }
+  | { ok: false; message: string };
+
+const MY_STYLE_FAILURE_MESSAGE = "말투를 기억하지 못했습니다. 다시 시도해주세요.";
+
+// "내 말투 기억"(STEP 10). 사용자가 opt-in으로 붙여넣은 예시 메시지 2~5개를 서버로 한 번만 보내
+// 스타일만 추출한다. 결과를 이 기기에 저장하는 것은 호출한 쪽(page.tsx)의 책임이다.
+export async function analyzeMyStyle(samples: string[]): Promise<AnalyzeMyStyleResult> {
+  try {
+    const res = await fetch("/api/analyze-my-style", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ samples }),
+    });
+
+    const data = (await res.json().catch(() => null)) as
+      | { result: UserStyleProfile }
+      | { error: string }
+      | null;
+
+    if (!res.ok || !data || !("result" in data)) {
+      return { ok: false, message: MY_STYLE_FAILURE_MESSAGE };
+    }
+
+    return { ok: true, profile: data.result };
+  } catch {
+    return { ok: false, message: MY_STYLE_FAILURE_MESSAGE };
   }
 }

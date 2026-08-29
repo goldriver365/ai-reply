@@ -125,12 +125,23 @@ export const RefineResponseSchema = z.object({
 // 긴 대화의 "과거" 부분에서 핵심 맥락만 추출하는 요약 전용 스키마(STEP 5).
 // src/lib/types.ts 의 ConversationContextData / StyleProfile 과 구조를 반드시 맞춘다.
 // 장문 설명이 아닌 최소한의 정보만 담도록 각 필드를 짧게 요구한다.
-const StyleProfileSchema = z.object({
+export const StyleProfileSchema = z.object({
   speechLevel: z.string().min(1).describe("존댓말/반말 등 격식 수준을 짧게 (예: '반말', '존댓말')"),
   averageLength: z.string().min(1).describe("평소 메시지 길이 경향을 짧게 (예: '짧은 편', '보통')"),
   emojiUsage: z.string().min(1).describe("이모티콘/이모지 사용 정도를 짧게"),
   laughterStyle: z.string().min(1).describe("ㅋㅋ/ㅎㅎ 등 웃음 표현 사용 정도를 짧게"),
   directness: z.string().min(1).describe("직접적/간접적 표현 성향을 짧게"),
+});
+
+// 사용자가 opt-in으로 등록하는 "내 말투"(STEP 10)의 스키마. 대화 내용이 아니라 스타일 카테고리만
+// 담으며, "내 말투 기억" 분석 응답의 형식이자, 클라이언트가 이후 요청에 되돌려주는 값의 검증 형식이다.
+export const UserStyleProfileSchema = StyleProfileSchema.extend({
+  confidence: z
+    .enum(["low", "medium", "high"])
+    .describe(
+      "이 스타일 추정에 대한 확신도. 예시 문장이 충분하고 신호가 뚜렷하면 high, 예시가 1~2개뿐이거나 " +
+        "너무 짧으면 low, 그 중간이면 medium.",
+    ),
 });
 
 export const ConversationContextSchema = z.object({

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "@/lib/anthropicClient";
-import { RefineResponseSchema } from "@/lib/replySchema";
+import { RefineResponseSchema, UserStyleProfileSchema } from "@/lib/replySchema";
 import { REFINE_SYSTEM_PROMPT, buildRefinePrompt } from "@/lib/prompt";
 import type { RefineAdjustment } from "@/lib/types";
 
@@ -25,6 +25,7 @@ const ADJUSTMENTS: readonly RefineAdjustment[] = [
   "emojiAdd",
   "emojiRemove",
   "custom",
+  "myStyle",
 ];
 
 function isAdjustment(value: unknown): value is RefineAdjustment {
@@ -44,17 +45,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
 
-  const { text, adjustment, customInstruction, language, relationship, goal, tone, speechLevel } =
-    (body ?? {}) as {
-      text?: unknown;
-      adjustment?: unknown;
-      customInstruction?: unknown;
-      language?: unknown;
-      relationship?: unknown;
-      goal?: unknown;
-      tone?: unknown;
-      speechLevel?: unknown;
-    };
+  const {
+    text,
+    adjustment,
+    customInstruction,
+    language,
+    relationship,
+    goal,
+    tone,
+    speechLevel,
+    myStyle,
+  } = (body ?? {}) as {
+    text?: unknown;
+    adjustment?: unknown;
+    customInstruction?: unknown;
+    language?: unknown;
+    relationship?: unknown;
+    goal?: unknown;
+    tone?: unknown;
+    speechLevel?: unknown;
+    myStyle?: unknown;
+  };
 
   if (typeof text !== "string" || text.trim().length === 0) {
     return NextResponse.json({ error: "조정할 답변이 없습니다." }, { status: 400 });
@@ -66,6 +77,10 @@ export async function POST(request: Request) {
     adjustment === "custom" &&
     (typeof customInstruction !== "string" || customInstruction.trim().length === 0)
   ) {
+    return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
+  }
+  const parsedMyStyle = UserStyleProfileSchema.safeParse(myStyle);
+  if (adjustment === "myStyle" && !parsedMyStyle.success) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
 
@@ -101,6 +116,8 @@ export async function POST(request: Request) {
             goal: toContextField(goal, "자동 추천"),
             tone: toContextField(tone, "알 수 없음"),
             speechLevel: toContextField(speechLevel, "자동"),
+            myStyle:
+              adjustment === "myStyle" && parsedMyStyle.success ? parsedMyStyle.data : undefined,
           }),
         },
       ],

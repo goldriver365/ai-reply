@@ -16,6 +16,12 @@ const ADJUSTMENT_OPTIONS: { value: RefineAdjustment; label: string }[] = [
   { value: "emojiRemove", label: "이모지 빼기" },
 ];
 
+// "내 말투로"는 사용자가 [내 말투 기억]을 등록해둔 경우에만 의미가 있으므로 항상 보이지 않는다.
+const MY_STYLE_OPTION: { value: RefineAdjustment; label: string } = {
+  value: "myStyle",
+  label: "내 말투로",
+};
+
 const MAX_CUSTOM_INSTRUCTION_LENGTH = 40;
 
 export default function ReplyResultCard({
@@ -29,6 +35,7 @@ export default function ReplyResultCard({
   refineDisabled,
   justRefined,
   onUndo,
+  hasMyStyle,
 }: {
   index: number;
   text: string;
@@ -48,6 +55,8 @@ export default function ReplyResultCard({
   justRefined?: boolean;
   /** 방금 다듬은 것을 되돌리는 콜백. 되돌릴 대상이 이 카드일 때만 전달된다. */
   onUndo?: () => void;
+  /** 사용자가 "내 말투"를 등록해뒀는지. true일 때만 "내 말투로" 옵션을 보여준다. */
+  hasMyStyle?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -137,6 +146,16 @@ export default function ReplyResultCard({
 
           {expanded && (
             <div className="mt-2 flex flex-wrap gap-2">
+              {hasMyStyle && (
+                <button
+                  type="button"
+                  onClick={() => onRefine(MY_STYLE_OPTION.value)}
+                  disabled={buttonsDisabled}
+                  className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {MY_STYLE_OPTION.label}
+                </button>
+              )}
               {ADJUSTMENT_OPTIONS.map((option) => (
                 <button
                   key={option.value}

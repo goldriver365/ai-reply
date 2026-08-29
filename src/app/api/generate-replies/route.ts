@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "@/lib/anthropicClient";
-import { ConversationContextSchema, ReplyResponseSchema } from "@/lib/replySchema";
+import {
+  ConversationContextSchema,
+  ReplyResponseSchema,
+  UserStyleProfileSchema,
+} from "@/lib/replySchema";
 import {
   REPLY_SYSTEM_PROMPT,
   buildFileInstructionText,
@@ -24,6 +28,7 @@ import type {
   Relationship,
   ReplyStyle,
   SpeechLevel,
+  UserStyleProfile,
 } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -79,6 +84,13 @@ function parseConversationContext(value: unknown): ConversationContextData | und
   return result.success ? result.data : undefined;
 }
 
+// 클라이언트(localStorage)가 되돌려준 "내 말투"(STEP 10). 모양이 정확히 맞을 때만 신뢰하고,
+// 그렇지 않으면 무시한다(undefined) — 잘못된 값으로 답변 품질이 깨지지 않도록.
+function parseMyStyle(value: unknown): UserStyleProfile | undefined {
+  const result = UserStyleProfileSchema.safeParse(value);
+  return result.success ? result.data : undefined;
+}
+
 function isAllowedImageType(value: unknown): value is AllowedImageType {
   return typeof value === "string" && (ALLOWED_IMAGE_TYPES as readonly string[]).includes(value);
 }
@@ -128,6 +140,7 @@ export async function POST(request: Request) {
     speechLevel,
     previousReplies,
     conversationContext,
+    myStyle,
   } = (body ?? {}) as {
     conversation?: unknown;
     style?: unknown;
@@ -139,6 +152,7 @@ export async function POST(request: Request) {
     speechLevel?: unknown;
     previousReplies?: unknown;
     conversationContext?: unknown;
+    myStyle?: unknown;
   };
 
   const resolvedStyle: ReplyStyle = isReplyStyle(style) ? style : "자연스럽게";
@@ -151,6 +165,11 @@ export async function POST(request: Request) {
     : DEFAULT_SPEECH_LEVEL;
   const resolvedPreviousReplies = parsePreviousReplies(previousReplies);
   const isFileMode = inputMode === "file";
+
+  // 확신도가 낮은 "내 말투"는 억지로 개인화하는 데 쓰지 않고 자연스러운 기본 말투로 진행한다.
+  const parsedMyStyle = parseMyStyle(myStyle);
+  const resolvedMyStyle: UserStyleProfile | undefined =
+    parsedMyStyle && parsedMyStyle.confidence !== "low" ? parsedMyStyle : undefined;
 
   let userContent: Anthropic.MessageParam["content"];
   // 이번 요청에서 실제로 사용한(또는 새로 만든) 대화 맥락. 응답에 실어 보내면
@@ -195,6 +214,7 @@ export async function POST(request: Request) {
         speechLevel: resolvedSpeechLevel,
         note: resolvedNote,
         previousReplies: resolvedPreviousReplies,
+        myStyle: resolvedMyStyle,
       }),
     });
     userContent = content;
@@ -223,6 +243,7 @@ export async function POST(request: Request) {
         goal: resolvedGoal,
         speechLevel: resolvedSpeechLevel,
         previousReplies: resolvedPreviousReplies,
+        myStyle: resolvedMyStyle,
       });
     } else {
       // 긴 대화: 최근 대화는 원문 그대로, 그 이전은 핵심 맥락으로 압축해서 사용한다.
@@ -259,6 +280,7 @@ export async function POST(request: Request) {
         goal: resolvedGoal,
         speechLevel: resolvedSpeechLevel,
         previousReplies: resolvedPreviousReplies,
+        myStyle: resolvedMyStyle,
       });
 
       // 개발 중 확인용 디버그 정보. 대화 내용 자체는 절대 출력하지 않는다.

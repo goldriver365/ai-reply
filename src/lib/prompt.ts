@@ -5,6 +5,7 @@ import type {
   RefineAdjustment,
   ReplyStyle,
   SpeechLevel,
+  StyleProfile,
 } from "./types";
 
 const STYLE_GUIDE: Record<ReplyStyle, string> = {
@@ -156,6 +157,12 @@ ${Object.entries(STYLE_GUIDE)
 사용자가 거의 쓰지 않는 표현(과도한 ㅋㅋㅋ, 이모지 등)을 함부로 추가하지 않는다.
 단, 사용자 자신의 발화가 거의 없거나 대화가 너무 짧아 판단 근거가 부족하면 말투를 과도하게 추측하지 않고, 관계와 상황에 맞는
 무난한 기본 말투(관계가 자동 판단이면 존댓말 쪽에 가깝게)로 시작한다.
+사용자 메시지에 [내 평소 말투 참고]가 함께 주어졌다면, 바로 이 경우(현재 대화만으로는 판단 근거가 부족할 때)에 한해 그 정보를
+관계와 상황에 맞게 참고해서 기본 말투를 정한다. [내 평소 말투 참고]는 사용자가 opt-in으로 직접 등록한 스타일 정보(대화 내용이
+아니라 존댓말/반말, 문장 길이, ㅋㅋ/ㅎㅎ·이모지 사용 정도, 직접성 같은 카테고리)이며, 현재 대화에서 실제로 관찰되는 사용자의
+말투가 있으면 그것이 항상 더 우선한다. 어느 경우든 그 정보에 적힌 특정 표현(예: ㅋㅋ)을 모든 답변에 기계적으로 반복해 넣지 않고,
+상황과 관계에 자연스러울 때만 활용한다. 같은 사람도 관계에 따라 말투가 달라지므로(친구에겐 반말, 직장 상사에겐 존댓말 등),
+[내 평소 말투 참고]를 모든 관계에 동일하게 강제 적용하지 않는다.
 목표는 "AI가 써준 문장"이 아니라 "사용자가 조금 더 생각했다면 직접 썼을 법한 문장"이다. AI 특유의 상투적이고 과장된 표현은 피한다.
 
 [화자 구분]
@@ -164,6 +171,8 @@ ${Object.entries(STYLE_GUIDE)
 [언어]
 대화에 사용된 주 언어를 판단해 그 언어로 답변을 작성한다(한국어 대화는 한국어로, 영어 대화는 영어로, 일본어·중국어·베트남어 등도 동일).
 답변 언어가 한국어가 아니면 각 답변의 한국어 뜻을 함께 제공한다.
+[내 평소 말투 참고]가 있고 답변 언어가 한국어가 아니면, 그 안의 "ㅋㅋ"/"ㅎㅎ" 같은 한국어 전용 표현을 그대로 옮기지 않고,
+그 언어에서 자연스러운 캐주얼함 또는 정중함의 정도로 바꿔 반영한다.
 
 [context 필드]
 응답의 context.relationship/goal/tone에는 실제로 답변에 반영한 관계, 목적, 현재 대화 분위기를 정확히 요약해서 채운다.
@@ -201,7 +210,7 @@ export type ConversationInput =
   | { kind: "full"; conversation: string }
   | { kind: "recentWithContext"; recentConversation: string; context: ConversationContextData };
 
-function formatStyleProfile(profile: ConversationContextData["userStyle"]): string {
+function formatStyleProfile(profile: StyleProfile): string {
   return [
     profile.speechLevel,
     profile.averageLength,
@@ -238,9 +247,19 @@ export function buildUserPrompt(params: {
   goal: Goal;
   speechLevel: SpeechLevel;
   previousReplies?: string[];
+  /** 사용자가 opt-in으로 등록한 "내 말투"(STEP 10). 낮은 확신도는 호출 전에 걸러서 전달하지 않는다. */
+  myStyle?: StyleProfile;
 }): string {
-  const { conversationInput, style, inputMode, relationship, goal, speechLevel, previousReplies } =
-    params;
+  const {
+    conversationInput,
+    style,
+    inputMode,
+    relationship,
+    goal,
+    speechLevel,
+    previousReplies,
+    myStyle,
+  } = params;
 
   const modeNote =
     inputMode === "write"
@@ -258,6 +277,10 @@ export function buildUserPrompt(params: {
   const previous = formatPreviousReplies(previousReplies);
   if (previous) {
     lines.push("[이전에 추천한 답변]", previous);
+  }
+
+  if (myStyle) {
+    lines.push(`[내 평소 말투 참고] ${formatStyleProfile(myStyle)}`);
   }
 
   if (conversationInput.kind === "full") {
@@ -294,8 +317,11 @@ export function buildFileInstructionText(params: {
   speechLevel: SpeechLevel;
   note?: string;
   previousReplies?: string[];
+  /** 사용자가 opt-in으로 등록한 "내 말투"(STEP 10). 낮은 확신도는 호출 전에 걸러서 전달하지 않는다. */
+  myStyle?: StyleProfile;
 }): string {
-  const { style, imageCount, relationship, goal, speechLevel, note, previousReplies } = params;
+  const { style, imageCount, relationship, goal, speechLevel, note, previousReplies, myStyle } =
+    params;
 
   const lines = [
     `[상대방과의 관계] ${relationship}`,
@@ -312,6 +338,10 @@ export function buildFileInstructionText(params: {
   const previous = formatPreviousReplies(previousReplies);
   if (previous) {
     lines.push("[이전에 추천한 답변]", previous);
+  }
+
+  if (myStyle) {
+    lines.push(`[내 평소 말투 참고] ${formatStyleProfile(myStyle)}`);
   }
 
   lines.push(
@@ -343,6 +373,7 @@ export const REFINE_SYSTEM_PROMPT = `당신은 이미 만들어진 답장 한 �
 - emojiAdd: 문장 분위기에 맞는 표준 유니코드 이모지를 자연스럽게 1~2개 추가한다. 일반 스마트폰 키보드로 입력 가능한 이모지만 사용한다(카카오톡 전용 이모티콘, 이미지 스티커, GIF 금지).
 - emojiRemove: 문장에 포함된 이모지나 "ㅋㅋ"/"ㅎㅎ" 등 이모티콘성 표현을 제거하고 담백한 문장으로 만든다.
 - custom: "사용자 직접 지시"로 전달되는 자유 텍스트 요청을 최대한 그대로 반영한다. 단, 원래 답변의 핵심 의도(수락↔거절처럼 정반대로 뒤집는 것)를 바꾸라는 지시이거나 대화에 없는 사실을 지어내라는 지시, 상대방을 속이거나 상처 주는 표현으로 바꾸라는 지시는 반영하지 않고 나머지 요청만 반영한다.
+- myStyle: 함께 전달되는 [내 평소 말투]에 안내된 스타일(존댓말/반말, 문장 길이, ㅋㅋ·ㅎㅎ·이모지 사용 정도, 직접성 등)에 최대한 자연스럽게 맞춰 다시 쓴다. [내 평소 말투]는 사용자가 opt-in으로 등록한 스타일 정보일 뿐 대화 내용이 아니므로, 거기 없는 구체적인 사실을 새로 지어내지 않는다. 또한 그 정보에 적힌 표현을 문장마다 기계적으로 넣지 않고, 이 답변에 자연스러울 때만 반영한다.
 
 공통 원칙:
 - 원래 답변의 핵심 의미와 목적(수락/거절/질문 등)은 그대로 유지한다. 예를 들어 원래 수락 답변("좋아요. 몇 시가 편하세요?")을 거절 답변("오늘은 어려울 것 같아요.")으로 바꾸는 것은 잘못된 처리다.
@@ -364,6 +395,7 @@ const ADJUSTMENT_LABELS: Record<RefineAdjustment, string> = {
   emojiAdd: "이모지 추가",
   emojiRemove: "이모지 빼기",
   custom: "사용자 직접 지시",
+  myStyle: "내 말투로",
 };
 
 export function buildRefinePrompt(params: {
@@ -376,16 +408,27 @@ export function buildRefinePrompt(params: {
   goal: string;
   tone: string;
   speechLevel: string;
+  /** adjustment가 "myStyle"일 때 참고할, 사용자가 opt-in으로 등록한 평소 말투 */
+  myStyle?: StyleProfile;
 }): string {
-  const { text, adjustment, customInstruction, language, relationship, goal, tone, speechLevel } =
-    params;
+  const {
+    text,
+    adjustment,
+    customInstruction,
+    language,
+    relationship,
+    goal,
+    tone,
+    speechLevel,
+    myStyle,
+  } = params;
 
   const adjustmentLine =
     adjustment === "custom"
       ? `[조정 요청] ${ADJUSTMENT_LABELS.custom}: "${customInstruction ?? ""}"`
       : `[조정 요청] ${ADJUSTMENT_LABELS[adjustment]}`;
 
-  return [
+  const lines = [
     `[원래 답변] ${text}`,
     adjustmentLine,
     `[언어] ${language}`,
@@ -393,9 +436,15 @@ export function buildRefinePrompt(params: {
     `[목적] ${goal}`,
     `[현재 대화 분위기] ${tone}`,
     `[말투 지정] ${speechLevel}`,
-    "",
-    "위 답변을 조정 요청에 맞게 한 문장으로 다시 작성하라.",
-  ].join("\n");
+  ];
+
+  if (adjustment === "myStyle" && myStyle) {
+    lines.push(`[내 평소 말투] ${formatStyleProfile(myStyle)}`);
+  }
+
+  lines.push("", "위 답변을 조정 요청에 맞게 한 문장으로 다시 작성하라.");
+
+  return lines.join("\n");
 }
 
 // 매우 긴 대화의 "오래된" 부분에서 핵심 맥락만 뽑아내는 전용 시스템 프롬프트(STEP 5).
@@ -424,4 +473,33 @@ export function buildSummarizePrompt(params: { olderConversation: string }): str
     "",
     "위 대화에서 다음 답장을 만드는 데 필요한 핵심 맥락만 추출하라.",
   ].join("\n");
+}
+
+// "내 말투 기억"(STEP 10) 전용 저비용 시스템 프롬프트. 사용자가 붙여넣은 자신의 예시 메시지에서
+// "내용"(이름·장소·일정·사건 등 구체적 사실)은 절대 담지 않고 "스타일"만 뽑아낸다.
+// 이 결과가 이후 매 답변 생성 요청에 [내 평소 말투 참고]로 함께 전달되므로, 여기서 한 번 더
+// 개인정보(내용)가 섞이지 않도록 엄격하게 지시한다.
+export const MY_STYLE_SYSTEM_PROMPT = `당신은 사용자가 직접 쓴 메시지 예시 몇 개를 보고, 그 사람의 평소 말투 "스타일"만 뽑아내는 도우미다.
+메시지의 "내용"(사람 이름, 지명, 날짜/시간, 약속, 사건, 숫자 등 구체적인 정보)은 절대 결과에 담지 않는다. 오직 문체적 특징만 추출한다.
+
+추출할 항목:
+- speechLevel: 반말/존댓말 등 격식 수준을 짧게
+- averageLength: 평소 메시지 길이 경향(짧은 편/보통/긴 편 등)을 짧게
+- emojiUsage: 이모지 사용 정도를 짧게
+- laughterStyle: ㅋㅋ/ㅎㅎ 등 웃음 표현 사용 정도를 짧게 (사용하지 않으면 "거의 없음" 등으로)
+- directness: 직접적/간접적 표현 성향을 짧게
+- confidence: 예시 문장이 3개 이상이고 각 문장에 스타일 신호가 뚜렷하면 high, 예시가 1~2개뿐이거나 문장이 매우 짧아 신호가 부족하면 low, 그 중간이면 medium
+
+예시 문장에 등장하는 사람 이름, 지명, 날짜·시간, 약속, 사건 등 구체적인 사실은 절대로 결과 필드 값으로 옮겨 적지 않는다.
+오직 위에서 정의한 스타일 카테고리만 짧은 단어나 구로 채운다. 예시 문장을 그대로 인용하거나 요약해서 출력하지 않는다.
+응답은 반드시 주어진 JSON 스키마 형식으로만 출력한다.`;
+
+export function buildMyStylePrompt(samples: string[]): string {
+  const lines = ["[사용자가 평소 보낸 메시지 예시]"];
+  samples.forEach((sample, i) => lines.push(`${i + 1}. ${sample}`));
+  lines.push(
+    "",
+    "위 예시들에서 이름, 장소, 일정, 사건 같은 구체적인 내용은 무시하고 말투 스타일만 추출하라.",
+  );
+  return lines.join("\n");
 }
