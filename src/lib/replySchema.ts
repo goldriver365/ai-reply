@@ -24,7 +24,8 @@ export const ReplyItemSchema = z.object({
     .describe("text가 한국어가 아닐 때의 한국어 뜻. text가 한국어면 null."),
 });
 
-export const ReplyResponseSchema = z.object({
+const ReplyOkSchema = z.object({
+  status: z.literal("ok"),
   language: z
     .string()
     .min(1)
@@ -41,5 +42,22 @@ export const ReplyResponseSchema = z.object({
       "서로 전략이 뚜렷하게 다른 답변 3개. best, active, gentle 타입을 각각 정확히 하나씩 포함한다.",
     ),
 });
+
+// 스크린샷 글자를 알아보기 어렵거나 마지막 메시지를 확인할 수 없는 등,
+// 신뢰할 수 있는 답변을 만들 수 없을 때 억지로 답변을 만들지 않고 이 형태로 응답한다.
+const ReplyUnreadableSchema = z.object({
+  status: z.literal("unreadable"),
+  message: z
+    .string()
+    .min(1)
+    .describe(
+      "사용자에게 그대로 보여줄 짧고 정중한 안내 문구. 예: '대화 내용을 정확히 읽기 어렵습니다. 더 선명한 스크린샷을 올려주세요.'",
+    ),
+});
+
+export const ReplyResponseSchema = z.discriminatedUnion("status", [
+  ReplyOkSchema,
+  ReplyUnreadableSchema,
+]);
 
 export type ReplyResponse = z.infer<typeof ReplyResponseSchema>;

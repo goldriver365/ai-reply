@@ -1,10 +1,13 @@
-import type { AIReplyResult, ReplyStyle } from "./types";
+import type { AIReplyResult, ReplyStyle, ResizedImagePayload } from "./types";
 
-export interface GenerateRepliesInput {
-  conversation: string;
-  style: ReplyStyle;
-  inputMode: "paste" | "write";
-}
+export type GenerateRepliesInput =
+  | { inputMode: "paste" | "write"; style: ReplyStyle; conversation: string }
+  | {
+      inputMode: "file";
+      style: ReplyStyle;
+      images: ResizedImagePayload[];
+      note?: string;
+    };
 
 export type GenerateRepliesResult =
   | { ok: true; result: AIReplyResult }

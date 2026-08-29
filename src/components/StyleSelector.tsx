@@ -1,6 +1,6 @@
 "use client";
 
-import { REPLY_STYLES } from "@/lib/mockReplies";
+import { REPLY_STYLES } from "@/lib/replyStyles";
 import type { ReplyStyle } from "@/lib/types";
 
 export default function StyleSelector({
