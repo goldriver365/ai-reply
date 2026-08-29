@@ -1,14 +1,46 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import ImageUploader from "@/components/ImageUploader";
 import ModeSelector from "@/components/ModeSelector";
 import ReplyResultCard from "@/components/ReplyResultCard";
 import StyleSelector from "@/components/StyleSelector";
+import { generateReplies } from "@/lib/api";
 import { getMockReplySet, REPLY_STYLES } from "@/lib/mockReplies";
-import type { InputMode, ReplyStyle, UploadedImage } from "@/lib/types";
+import type {
+  AIReplyItem,
+  AIReplyResult,
+  InputMode,
+  ReplyStyle,
+  ReplyType,
+  UploadedImage,
+} from "@/lib/types";
 
 let imageIdCounter = 0;
+
+interface DisplayReply {
+  text: string;
+  translation?: string | null;
+}
+
+// AI 응답의 순서가 흐트러져도 best → active → gentle 순서로 정렬한다.
+function orderAiReplies(result: AIReplyResult): AIReplyItem[] {
+  const order: ReplyType[] = ["best", "active", "gentle"];
+  const used = new Set<AIReplyItem>();
+  const ordered: AIReplyItem[] = [];
+
+  for (const type of order) {
+    const found = result.replies.find((r) => r.type === type && !used.has(r));
+    if (found) {
+      ordered.push(found);
+      used.add(found);
+    }
+  }
+  for (const reply of result.replies) {
+    if (!used.has(reply)) ordered.push(reply);
+  }
+  return ordered;
+}
 
 export default function Home() {
   const [mode, setMode] = useState<InputMode>("paste");
@@ -16,13 +48,27 @@ export default function Home() {
   const [writeText, setWriteText] = useState("");
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [style, setStyle] = useState<ReplyStyle>(REPLY_STYLES[0]);
+
+  // 파일 넣기(mock) 결과
   const [resultSetIndex, setResultSetIndex] = useState<number | null>(null);
+  // 붙여넣기/직접 쓰기(실제 AI) 결과
+  const [aiResult, setAiResult] = useState<AIReplyResult | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isRequestInFlight = useRef(false);
 
   const hasInput = useMemo(() => {
     if (mode === "paste") return pasteText.trim().length > 0;
     if (mode === "write") return writeText.trim().length > 0;
     return images.length > 0;
   }, [mode, pasteText, writeText, images]);
+
+  const handleModeChange = (nextMode: InputMode) => {
+    setMode(nextMode);
+    setResultSetIndex(null);
+    setAiResult(null);
+    setErrorMessage(null);
+  };
 
   const handleAddImages = (files: FileList) => {
     const added: UploadedImage[] = Array.from(files).map((file) => ({
@@ -41,15 +87,62 @@ export default function Home() {
     });
   };
 
+  // 붙여넣기/직접 쓰기: 실제 AI 호출. 중복 클릭으로 여러 번 호출되지 않도록 막는다.
+  const runAiGenerate = async () => {
+    if (isRequestInFlight.current) return;
+    const conversation = mode === "write" ? writeText : pasteText;
+    if (conversation.trim().length === 0) return;
+
+    isRequestInFlight.current = true;
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    const response = await generateReplies({
+      conversation,
+      style,
+      inputMode: mode === "write" ? "write" : "paste",
+    });
+
+    isRequestInFlight.current = false;
+    setIsLoading(false);
+
+    if (response.ok) {
+      setAiResult(response.result);
+    } else {
+      setAiResult(null);
+      setErrorMessage(response.message);
+    }
+  };
+
   const handleRecommend = () => {
-    setResultSetIndex(0);
+    if (mode === "file") {
+      setResultSetIndex(0);
+      return;
+    }
+    void runAiGenerate();
   };
 
   const handleRetry = () => {
-    setResultSetIndex((prev) => (prev === null ? 0 : prev + 1));
+    if (mode === "file") {
+      setResultSetIndex((prev) => (prev === null ? 0 : prev + 1));
+      return;
+    }
+    void runAiGenerate();
   };
 
-  const results = resultSetIndex === null ? null : getMockReplySet(resultSetIndex);
+  const displayReplies: DisplayReply[] | null = useMemo(() => {
+    if (mode === "file") {
+      if (resultSetIndex === null) return null;
+      return getMockReplySet(resultSetIndex).map((text) => ({ text }));
+    }
+    if (!aiResult) return null;
+    return orderAiReplies(aiResult).map((reply) => ({
+      text: reply.text,
+      translation: reply.translationKo,
+    }));
+  }, [mode, resultSetIndex, aiResult]);
+
+  const isFileMode = mode === "file";
 
   return (
     <div className="min-h-full flex-1 bg-slate-50">
@@ -62,7 +155,7 @@ export default function Home() {
         </header>
 
         <section className="space-y-3">
-          <ModeSelector value={mode} onChange={setMode} />
+          <ModeSelector value={mode} onChange={handleModeChange} />
 
           {mode === "paste" && (
             <textarea
@@ -100,25 +193,35 @@ export default function Home() {
 
         <button
           type="button"
-          disabled={!hasInput}
+          disabled={!hasInput || isLoading}
           onClick={handleRecommend}
           className="h-14 w-full rounded-xl bg-indigo-600 text-base font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
         >
-          답변 추천받기
+          {isLoading ? "답변을 만들고 있습니다..." : "답변 추천받기"}
         </button>
 
-        {results && (
+        {!isFileMode && errorMessage && (
+          <p className="text-center text-sm text-red-600">{errorMessage}</p>
+        )}
+
+        {displayReplies && (
           <section className="space-y-3">
             <h2 className="text-sm font-semibold text-slate-700">추천 답변</h2>
             <div className="space-y-3">
-              {results.map((text, i) => (
-                <ReplyResultCard key={i} index={i} text={text} />
+              {displayReplies.map((reply, i) => (
+                <ReplyResultCard
+                  key={i}
+                  index={i}
+                  text={reply.text}
+                  translation={reply.translation}
+                />
               ))}
             </div>
             <button
               type="button"
               onClick={handleRetry}
-              className="h-12 w-full rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-100"
+              disabled={isLoading}
+              className="h-12 w-full rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               다시 추천
             </button>

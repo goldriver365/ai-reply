@@ -5,9 +5,12 @@ import { useState } from "react";
 export default function ReplyResultCard({
   index,
   text,
+  translation,
 }: {
   index: number;
   text: string;
+  /** 외국어 답변일 때의 한국어 뜻. 한국어 답변이면 없음. */
+  translation?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -49,6 +52,9 @@ export default function ReplyResultCard({
         </span>
       </div>
       <p className="text-base leading-relaxed text-slate-900">{text}</p>
+      {translation && (
+        <p className="mt-1 text-xs leading-relaxed text-slate-400">{translation}</p>
+      )}
     </button>
   );
 }
