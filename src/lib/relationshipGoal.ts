@@ -40,3 +40,12 @@ export const GOALS: Goal[] = [
 
 export const DEFAULT_RELATIONSHIP: Relationship = RELATIONSHIPS[0];
 export const DEFAULT_GOAL: Goal = GOALS[0];
+
+// 화면에 기본으로 보이는 짧은 관계 칩 목록(나머지는 "더보기"로 노출). 값은 RELATIONSHIPS의 부분집합이다.
+export const PRIMARY_RELATIONSHIPS: Relationship[] = [
+  "자동 판단",
+  "친구",
+  "직장 동료",
+  "가족",
+  "연인",
+];

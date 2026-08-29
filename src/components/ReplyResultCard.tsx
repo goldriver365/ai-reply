@@ -15,6 +15,7 @@ export default function ReplyResultCard({
   text,
   translation,
   emojiOnly,
+  typeLabel,
   onRefine,
   isRefining,
 }: {
@@ -24,6 +25,8 @@ export default function ReplyResultCard({
   translation?: string | null;
   /** 이모티콘만으로 구성된 답변이면 더 크게 표시한다. */
   emojiOnly?: boolean;
+  /** 아주 작은 유형명. 예: "자연스럽게", "조금 더 적극적으로" */
+  typeLabel?: string;
   /** 이 카드의 답변만 다듬어달라는 요청. 생략하면 조정 버튼을 표시하지 않는다. */
   onRefine?: (adjustment: RefineAdjustment) => void;
   isRefining?: boolean;
@@ -43,12 +46,17 @@ export default function ReplyResultCard({
         onClick={handleCopy}
         className="block w-full text-left transition-colors active:opacity-70"
       >
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs font-semibold text-indigo-600">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
             추천 {index + 1}
+            {typeLabel && (
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                {typeLabel}
+              </span>
+            )}
           </span>
           <span
-            className={`text-xs font-medium ${
+            className={`shrink-0 text-xs font-medium ${
               copied ? "text-emerald-600" : "text-slate-400"
             }`}
           >

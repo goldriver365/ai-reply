@@ -7,12 +7,14 @@ import type {
   Relationship,
   ReplyStyle,
   ResizedImagePayload,
+  SpeechLevel,
 } from "./types";
 
 export type GenerateRepliesInput = {
   style: ReplyStyle;
   relationship: Relationship;
   goal: Goal;
+  speechLevel: SpeechLevel;
   /** 다시 추천 시, 같은 문장이 반복되지 않도록 참고용으로 전달하는 직전 답변들 */
   previousReplies?: string[];
   /**

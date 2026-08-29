@@ -4,6 +4,7 @@ import type {
   Relationship,
   RefineAdjustment,
   ReplyStyle,
+  SpeechLevel,
 } from "./types";
 
 const STYLE_GUIDE: Record<ReplyStyle, string> = {
@@ -92,8 +93,13 @@ ${Object.entries(STYLE_GUIDE)
   .map(([style, desc]) => `- ${style}: ${desc}`)
   .join("\n")}
 
+[말투 지정]
+사용자 메시지에 [말투 지정]으로 "자동"/"반말"/"존댓말" 중 하나가 전달된다.
+"자동"이면 아래 [사용자의 기존 말투 유지] 규칙에 따라 대화에서 관찰한 평소 말투를 따른다.
+"반말" 또는 "존댓말"이 명시되면 대화에서 관찰되는 평소 말투와 다르더라도 그 지정을 최우선으로 따라 모든 답변의 존댓말/반말을 통일한다.
+
 [사용자의 기존 말투 유지]
-대화에서 사용자 자신의 발화("나")를 참고해 평소 말투(존댓말/반말, 평균 문장 길이, ㅋㅋ/ㅎㅎ 및 이모티콘 사용 빈도, 느낌표,
+[말투 지정]이 "자동"일 때는 대화에서 사용자 자신의 발화("나")를 참고해 평소 말투(존댓말/반말, 평균 문장 길이, ㅋㅋ/ㅎㅎ 및 이모티콘 사용 빈도, 느낌표,
 질문 방식, 말끝 표현, 감정 표현 강도, 직접적/간접적 표현)를 최대한 유지한다.
 사용자가 반말을 쓰면 임의로 존댓말로 바꾸지 않고, 평소 짧게 답하는 사람이면 답변도 길게 늘리지 않는다.
 사용자가 거의 쓰지 않는 표현(과도한 ㅋㅋㅋ, 이모지 등)을 함부로 추가하지 않는다.
@@ -168,9 +174,11 @@ export function buildUserPrompt(params: {
   inputMode: "paste" | "write";
   relationship: Relationship;
   goal: Goal;
+  speechLevel: SpeechLevel;
   previousReplies?: string[];
 }): string {
-  const { conversationInput, style, inputMode, relationship, goal, previousReplies } = params;
+  const { conversationInput, style, inputMode, relationship, goal, speechLevel, previousReplies } =
+    params;
 
   const modeNote =
     inputMode === "write"
@@ -181,6 +189,7 @@ export function buildUserPrompt(params: {
     `[상대방과의 관계] ${relationship}`,
     `[내가 원하는 방향] ${goal}`,
     `[답변 스타일] ${style}`,
+    `[말투 지정] ${speechLevel}`,
     `[입력 방식] ${modeNote}`,
   ];
 
@@ -220,15 +229,17 @@ export function buildFileInstructionText(params: {
   imageCount: number;
   relationship: Relationship;
   goal: Goal;
+  speechLevel: SpeechLevel;
   note?: string;
   previousReplies?: string[];
 }): string {
-  const { style, imageCount, relationship, goal, note, previousReplies } = params;
+  const { style, imageCount, relationship, goal, speechLevel, note, previousReplies } = params;
 
   const lines = [
     `[상대방과의 관계] ${relationship}`,
     `[내가 원하는 방향] ${goal}`,
     `[답변 스타일] ${style}`,
+    `[말투 지정] ${speechLevel}`,
     `[스크린샷 수] ${imageCount}장. 첨부된 순서를 시간 순서로 간주한다.`,
   ];
 

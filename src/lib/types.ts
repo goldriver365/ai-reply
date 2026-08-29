@@ -1,5 +1,3 @@
-export type InputMode = "paste" | "file" | "write";
-
 export type ReplyStyle =
   | "자연스럽게"
   | "친근하게"
@@ -54,6 +52,9 @@ export type Goal =
 
 // 답변 카드의 "더 짧게/더 친근하게/더 정중하게" 미세 조정 요청
 export type RefineAdjustment = "shorter" | "friendlier" | "polite";
+
+// 말투 지정. "자동"이면 AI가 대화에서 관찰한 사용자의 평소 말투를 따른다.
+export type SpeechLevel = "자동" | "반말" | "존댓말";
 
 // AI가 생성하는 답변 4개의 형태 구분(STEP 6)
 // natural: 가장 자연스럽고 안전한 답변 / active: 조금 더 적극적으로 대화를 이어가는 답변

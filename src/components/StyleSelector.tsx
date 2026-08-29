@@ -22,7 +22,7 @@ export default function StyleSelector({
             onClick={() => onChange(style)}
             className={`h-10 rounded-full px-4 text-sm font-medium transition-colors ${
               active
-                ? "bg-indigo-600 text-white"
+                ? "bg-emerald-600 text-white"
                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"
             }`}
           >

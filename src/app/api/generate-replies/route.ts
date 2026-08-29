@@ -11,12 +11,20 @@ import {
 } from "@/lib/prompt";
 import { REPLY_STYLES } from "@/lib/replyStyles";
 import { DEFAULT_GOAL, DEFAULT_RELATIONSHIP, GOALS, RELATIONSHIPS } from "@/lib/relationshipGoal";
+import { DEFAULT_SPEECH_LEVEL, SPEECH_LEVELS } from "@/lib/speechLevel";
 import {
   getConversationLengthTier,
   splitRecentAndOlder,
 } from "@/lib/conversationLength";
 import { summarizeOlderConversation } from "@/lib/summarizeConversation";
-import type { AIReplyResult, ConversationContextData, Goal, Relationship, ReplyStyle } from "@/lib/types";
+import type {
+  AIReplyResult,
+  ConversationContextData,
+  Goal,
+  Relationship,
+  ReplyStyle,
+  SpeechLevel,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -49,6 +57,10 @@ function isRelationship(value: unknown): value is Relationship {
 
 function isGoal(value: unknown): value is Goal {
   return typeof value === "string" && (GOALS as readonly string[]).includes(value);
+}
+
+function isSpeechLevel(value: unknown): value is SpeechLevel {
+  return typeof value === "string" && (SPEECH_LEVELS as readonly string[]).includes(value);
 }
 
 function parsePreviousReplies(value: unknown): string[] | undefined {
@@ -108,6 +120,7 @@ export async function POST(request: Request) {
     note,
     relationship,
     goal,
+    speechLevel,
     previousReplies,
     conversationContext,
   } = (body ?? {}) as {
@@ -118,6 +131,7 @@ export async function POST(request: Request) {
     note?: unknown;
     relationship?: unknown;
     goal?: unknown;
+    speechLevel?: unknown;
     previousReplies?: unknown;
     conversationContext?: unknown;
   };
@@ -127,6 +141,9 @@ export async function POST(request: Request) {
     ? relationship
     : DEFAULT_RELATIONSHIP;
   const resolvedGoal: Goal = isGoal(goal) ? goal : DEFAULT_GOAL;
+  const resolvedSpeechLevel: SpeechLevel = isSpeechLevel(speechLevel)
+    ? speechLevel
+    : DEFAULT_SPEECH_LEVEL;
   const resolvedPreviousReplies = parsePreviousReplies(previousReplies);
   const isFileMode = inputMode === "file";
 
@@ -163,6 +180,7 @@ export async function POST(request: Request) {
         imageCount: validatedImages.length,
         relationship: resolvedRelationship,
         goal: resolvedGoal,
+        speechLevel: resolvedSpeechLevel,
         note: resolvedNote,
         previousReplies: resolvedPreviousReplies,
       }),
@@ -191,6 +209,7 @@ export async function POST(request: Request) {
         inputMode: resolvedMode,
         relationship: resolvedRelationship,
         goal: resolvedGoal,
+        speechLevel: resolvedSpeechLevel,
         previousReplies: resolvedPreviousReplies,
       });
     } else {
@@ -226,6 +245,7 @@ export async function POST(request: Request) {
         inputMode: resolvedMode,
         relationship: resolvedRelationship,
         goal: resolvedGoal,
+        speechLevel: resolvedSpeechLevel,
         previousReplies: resolvedPreviousReplies,
       });
 
