@@ -5,7 +5,8 @@ import { getAnthropicClient } from "@/lib/anthropicClient";
 import { ReplyResponseSchema } from "@/lib/replySchema";
 import { REPLY_SYSTEM_PROMPT, buildFileInstructionText, buildUserPrompt } from "@/lib/prompt";
 import { REPLY_STYLES } from "@/lib/replyStyles";
-import type { AIReplyResult, ReplyStyle } from "@/lib/types";
+import { DEFAULT_GOAL, DEFAULT_RELATIONSHIP, GOALS, RELATIONSHIPS } from "@/lib/relationshipGoal";
+import type { AIReplyResult, Goal, Relationship, ReplyStyle } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -18,12 +19,33 @@ const MAX_IMAGES = 6;
 // 클라이언트에서 리사이즈된 이미지라도 비정상적으로 큰 페이로드는 거부한다(base64 문자 수 기준, 대략 6MB 디코딩).
 const MAX_IMAGE_BASE64_LENGTH = 8_000_000;
 
+// 다시 추천 시 참고할 이전 답변 개수/길이 상한(비용 최소화 목적).
+const MAX_PREVIOUS_REPLIES = 3;
+const MAX_PREVIOUS_REPLY_LENGTH = 300;
+
 const GENERIC_ERROR_MESSAGE = "답변을 만들지 못했습니다. 다시 시도해주세요.";
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 type AllowedImageType = (typeof ALLOWED_IMAGE_TYPES)[number];
 
 function isReplyStyle(value: unknown): value is ReplyStyle {
   return typeof value === "string" && (REPLY_STYLES as readonly string[]).includes(value);
+}
+
+function isRelationship(value: unknown): value is Relationship {
+  return typeof value === "string" && (RELATIONSHIPS as readonly string[]).includes(value);
+}
+
+function isGoal(value: unknown): value is Goal {
+  return typeof value === "string" && (GOALS as readonly string[]).includes(value);
+}
+
+function parsePreviousReplies(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const texts = value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .slice(0, MAX_PREVIOUS_REPLIES)
+    .map((text) => text.trim().slice(0, MAX_PREVIOUS_REPLY_LENGTH));
+  return texts.length > 0 ? texts : undefined;
 }
 
 function isAllowedImageType(value: unknown): value is AllowedImageType {
@@ -59,15 +81,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
 
-  const { conversation, style, inputMode, images, note } = (body ?? {}) as {
-    conversation?: unknown;
-    style?: unknown;
-    inputMode?: unknown;
-    images?: unknown;
-    note?: unknown;
-  };
+  const { conversation, style, inputMode, images, note, relationship, goal, previousReplies } =
+    (body ?? {}) as {
+      conversation?: unknown;
+      style?: unknown;
+      inputMode?: unknown;
+      images?: unknown;
+      note?: unknown;
+      relationship?: unknown;
+      goal?: unknown;
+      previousReplies?: unknown;
+    };
 
   const resolvedStyle: ReplyStyle = isReplyStyle(style) ? style : "자연스럽게";
+  const resolvedRelationship: Relationship = isRelationship(relationship)
+    ? relationship
+    : DEFAULT_RELATIONSHIP;
+  const resolvedGoal: Goal = isGoal(goal) ? goal : DEFAULT_GOAL;
+  const resolvedPreviousReplies = parsePreviousReplies(previousReplies);
   const isFileMode = inputMode === "file";
 
   let userContent: Anthropic.MessageParam["content"];
@@ -97,7 +128,10 @@ export async function POST(request: Request) {
       text: buildFileInstructionText({
         style: resolvedStyle,
         imageCount: validatedImages.length,
+        relationship: resolvedRelationship,
+        goal: resolvedGoal,
         note: resolvedNote,
+        previousReplies: resolvedPreviousReplies,
       }),
     });
     userContent = content;
@@ -114,6 +148,9 @@ export async function POST(request: Request) {
       conversation: trimmedConversation,
       style: resolvedStyle,
       inputMode: resolvedMode,
+      relationship: resolvedRelationship,
+      goal: resolvedGoal,
+      previousReplies: resolvedPreviousReplies,
     });
   }
 

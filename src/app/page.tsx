@@ -2,17 +2,22 @@
 
 import { useMemo, useRef, useState } from "react";
 import ImageUploader, { MAX_IMAGES } from "@/components/ImageUploader";
+import LabeledSelect from "@/components/LabeledSelect";
 import ModeSelector from "@/components/ModeSelector";
 import ReplyResultCard from "@/components/ReplyResultCard";
 import StyleSelector from "@/components/StyleSelector";
-import { generateReplies } from "@/lib/api";
+import { generateReplies, refineReply } from "@/lib/api";
 import { resizeImageFile } from "@/lib/imageResize";
+import { DEFAULT_GOAL, DEFAULT_RELATIONSHIP, GOALS, RELATIONSHIPS } from "@/lib/relationshipGoal";
 import { REPLY_STYLES } from "@/lib/replyStyles";
 import type {
   AIReplyItem,
   AIReplyOkResult,
   AIReplyResult,
+  Goal,
   InputMode,
+  RefineAdjustment,
+  Relationship,
   ReplyStyle,
   ReplyType,
   UploadedImage,
@@ -21,8 +26,10 @@ import type {
 let imageIdCounter = 0;
 
 interface DisplayReply {
+  type: ReplyType;
   text: string;
   translation?: string | null;
+  reason: string;
 }
 
 // AI 응답의 순서가 흐트러져도 best → active → gentle 순서로 정렬한다.
@@ -51,10 +58,13 @@ export default function Home() {
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [fileNote, setFileNote] = useState("");
   const [style, setStyle] = useState<ReplyStyle>(REPLY_STYLES[0]);
+  const [relationship, setRelationship] = useState<Relationship>(DEFAULT_RELATIONSHIP);
+  const [goal, setGoal] = useState<Goal>(DEFAULT_GOAL);
 
   const [aiResult, setAiResult] = useState<AIReplyResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [refiningType, setRefiningType] = useState<ReplyType | null>(null);
   const isRequestInFlight = useRef(false);
 
   const hasInput = useMemo(() => {
@@ -109,6 +119,10 @@ export default function Home() {
   const runAiGenerate = async () => {
     if (isRequestInFlight.current) return;
 
+    // 다시 추천 시 같은 문장이 반복되지 않도록 직전 답변을 함께 전달한다(대화 재분석은 하지 않음).
+    const previousReplies =
+      aiResult && aiResult.status === "ok" ? aiResult.replies.map((r) => r.text) : undefined;
+
     if (mode === "file") {
       if (images.length === 0) return;
 
@@ -130,6 +144,9 @@ export default function Home() {
       const response = await generateReplies({
         inputMode: "file",
         style,
+        relationship,
+        goal,
+        previousReplies,
         images: resizedImages,
         note: fileNote.trim().length > 0 ? fileNote.trim() : undefined,
       });
@@ -156,6 +173,9 @@ export default function Home() {
     const response = await generateReplies({
       inputMode: mode,
       style,
+      relationship,
+      goal,
+      previousReplies,
       conversation,
     });
 
@@ -173,11 +193,50 @@ export default function Home() {
   const handleRecommend = () => void runAiGenerate();
   const handleRetry = () => void runAiGenerate();
 
+  // 답변 카드 하나만 다듬는다. 전체 대화를 다시 분석하지 않고 최소한의 AI 호출로 처리한다.
+  const handleRefine = async (type: ReplyType, adjustment: RefineAdjustment) => {
+    if (!aiResult || aiResult.status !== "ok" || refiningType !== null) return;
+    const target = aiResult.replies.find((r) => r.type === type);
+    if (!target) return;
+
+    setRefiningType(type);
+    setErrorMessage(null);
+
+    const response = await refineReply({
+      text: target.text,
+      adjustment,
+      language: aiResult.language,
+      relationship: aiResult.context.relationship,
+      goal: aiResult.context.goal,
+      tone: aiResult.context.tone,
+    });
+
+    setRefiningType(null);
+
+    if (response.ok) {
+      setAiResult((prev) => {
+        if (!prev || prev.status !== "ok") return prev;
+        return {
+          ...prev,
+          replies: prev.replies.map((r) =>
+            r.type === type
+              ? { ...r, text: response.result.text, translationKo: response.result.translationKo }
+              : r,
+          ),
+        };
+      });
+    } else {
+      setErrorMessage(response.message);
+    }
+  };
+
   const displayReplies: DisplayReply[] | null = useMemo(() => {
     if (!aiResult || aiResult.status !== "ok") return null;
     return orderAiReplies(aiResult).map((reply) => ({
+      type: reply.type,
       text: reply.text,
       translation: reply.translationKo,
+      reason: reply.reason,
     }));
   }, [aiResult]);
 
@@ -241,6 +300,16 @@ export default function Home() {
           )}
         </section>
 
+        <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+          <LabeledSelect
+            label="상대방과의 관계"
+            value={relationship}
+            options={RELATIONSHIPS}
+            onChange={setRelationship}
+          />
+          <LabeledSelect label="내가 원하는 방향" value={goal} options={GOALS} onChange={setGoal} />
+        </section>
+
         <section className="space-y-2">
           <h2 className="text-sm font-semibold text-slate-700">답변 스타일</h2>
           <StyleSelector value={style} onChange={setStyle} />
@@ -266,10 +335,13 @@ export default function Home() {
             <div className="space-y-3">
               {displayReplies.map((reply, i) => (
                 <ReplyResultCard
-                  key={i}
+                  key={reply.type}
                   index={i}
                   text={reply.text}
                   translation={reply.translation}
+                  reason={reply.reason}
+                  onRefine={(adjustment) => void handleRefine(reply.type, adjustment)}
+                  isRefining={refiningType === reply.type}
                 />
               ))}
             </div>
