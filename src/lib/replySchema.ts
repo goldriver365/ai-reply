@@ -2,33 +2,30 @@ import { z } from "zod";
 
 // AI 구조화 출력(output_config.format)에 사용하는 스키마.
 // src/lib/types.ts 의 AIReplyResult / AIReplyItem 과 구조를 반드시 맞춘다.
-export const REPLY_TYPES = ["best", "active", "gentle"] as const;
+export const REPLY_TYPES = ["natural", "active", "emoji_text", "emoji_only"] as const;
 
 export const ReplyItemSchema = z.object({
   type: z
     .enum(REPLY_TYPES)
     .describe(
-      "답변 전략 구분. best: 현재 상황에서 가장 자연스럽고 안전한 기본 답변, " +
-        "active: 관계와 사용자 목적을 조금 더 적극적으로 반영해 관계를 발전시키는 답변, " +
-        "gentle: 상대방에게 부담을 최소화하면서 목적을 달성하려는 답변.",
+      "답변 형태 구분. natural: 가장 자연스럽고 안전한 답변, " +
+        "active: 조금 더 적극적으로 대화를 이어가는 답변, " +
+        "emoji_text: 문장에 표준 유니코드 이모티콘 1~2개를 자연스럽게 조합한 답변, " +
+        "emoji_only: 문장 없이 표준 유니코드 이모티콘만으로 구성된 답변.",
     ),
   text: z
     .string()
     .min(1)
     .describe(
-      "실제로 그대로 보낼 수 있는 완성된 답변 문장. 대화에서 감지한 언어와 동일한 언어로 작성한다.",
+      "실제로 그대로 보낼 수 있는 완성된 답변. 대화에서 감지한 언어와 동일한 언어로 작성한다. " +
+        "type이 emoji_only이면 이 필드에는 이모티콘 문자만 담는다(예: '😊👍').",
     ),
   translationKo: z
     .string()
     .nullable()
-    .describe("text가 한국어가 아닐 때의 한국어 뜻. text가 한국어면 null."),
-  reason: z
-    .string()
-    .min(1)
     .describe(
-      "이 답변의 전략을 설명하는 한 줄 문구(한 문장 이내). 예: '가장 자연스러운 답변', " +
-        "'조금 더 적극적인 답변', '부담을 줄인 답변'. 상대방의 심리를 진단하거나 단정하는 " +
-        "표현(예: '상대방은 화가 났습니다')은 절대 쓰지 않는다.",
+      "text가 한국어가 아닌 문장일 때의 한국어 뜻. text가 한국어이거나 emoji_only처럼 번역할 " +
+        "문장이 없으면 null.",
     ),
 });
 
@@ -61,9 +58,18 @@ const ReplyOkSchema = z.object({
   context: ReplyContextSchema,
   replies: z
     .array(ReplyItemSchema)
-    .length(3)
+    .length(4)
     .describe(
-      "서로 전략이 뚜렷하게 다른 답변 3개. best, active, gentle 타입을 각각 정확히 하나씩 포함한다.",
+      "서로 형태가 뚜렷하게 다른 답변 4개. natural, active, emoji_text, emoji_only 타입을 각각 " +
+        "정확히 하나씩 포함한다.",
+    ),
+  quickEmojis: z
+    .array(z.string().min(1))
+    .describe(
+      "현재 대화 분위기에 어울리는 표준 유니코드 이모티콘 4~6개(일반 스마트폰 키보드로 입력 " +
+        "가능한 것만, 이미지 스티커나 특정 플랫폼 전용 이모티콘 금지). 각 항목은 이모티콘 " +
+        "1~2개로 구성된 짧은 문자열이다. 연애 관계로 명확히 판단되지 않으면 ❤️/😘/🥰 같은 " +
+        "연애 뉘앙스가 강한 이모티콘은 넣지 않는다.",
     ),
 });
 

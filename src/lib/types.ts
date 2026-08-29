@@ -55,16 +55,16 @@ export type Goal =
 // 답변 카드의 "더 짧게/더 친근하게/더 정중하게" 미세 조정 요청
 export type RefineAdjustment = "shorter" | "friendlier" | "polite";
 
-// AI가 생성하는 답변 3개의 전략 구분
-export type ReplyType = "best" | "active" | "gentle";
+// AI가 생성하는 답변 4개의 형태 구분(STEP 6)
+// natural: 가장 자연스럽고 안전한 답변 / active: 조금 더 적극적으로 대화를 이어가는 답변
+// emoji_text: 문장 + 이모티콘 조합 / emoji_only: 표준 유니코드 이모티콘만으로 구성된 답변
+export type ReplyType = "natural" | "active" | "emoji_text" | "emoji_only";
 
 export interface AIReplyItem {
   type: ReplyType;
   text: string;
   /** text가 한국어가 아닐 때의 한국어 번역. 한국어 답변이면 null. */
   translationKo: string | null;
-  /** 한 줄을 넘지 않는 짧은 답변 전략 설명(심리 진단 아님). 예: "가장 자연스러운 답변" */
-  reason: string;
 }
 
 // 실제로 반영된 관계/목적/대화 분위기 요약. 사용자에게 그대로 노출하지 않는 내부 참고 정보.
@@ -80,6 +80,8 @@ export interface AIReplyOkResult {
   confidence: "low" | "medium" | "high";
   context: AIReplyContext;
   replies: AIReplyItem[];
+  /** 현재 대화 분위기에 어울리는 표준 유니코드 이모티콘 몇 개(이모티콘만 보내기 영역용) */
+  quickEmojis: string[];
 }
 
 // 이미지를 정확히 읽을 수 없는 등, 답변을 억지로 만들지 않고 사용자에게 안내만 하는 경우

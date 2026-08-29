@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import ImageUploader, { MAX_IMAGES } from "@/components/ImageUploader";
 import LabeledSelect from "@/components/LabeledSelect";
 import ModeSelector from "@/components/ModeSelector";
+import QuickEmojis from "@/components/QuickEmojis";
 import ReplyResultCard from "@/components/ReplyResultCard";
 import StyleSelector from "@/components/StyleSelector";
 import { generateReplies, refineReply } from "@/lib/api";
@@ -30,12 +31,11 @@ interface DisplayReply {
   type: ReplyType;
   text: string;
   translation?: string | null;
-  reason: string;
 }
 
-// AI 응답의 순서가 흐트러져도 best → active → gentle 순서로 정렬한다.
+// AI 응답의 순서가 흐트러져도 natural → active → emoji_text → emoji_only 순서로 정렬한다.
 function orderAiReplies(result: AIReplyOkResult): AIReplyItem[] {
-  const order: ReplyType[] = ["best", "active", "gentle"];
+  const order: ReplyType[] = ["natural", "active", "emoji_text", "emoji_only"];
   const used = new Set<AIReplyItem>();
   const ordered: AIReplyItem[] = [];
 
@@ -259,9 +259,10 @@ export default function Home() {
       type: reply.type,
       text: reply.text,
       translation: reply.translationKo,
-      reason: reply.reason,
     }));
   }, [aiResult]);
+
+  const quickEmojis = aiResult && aiResult.status === "ok" ? aiResult.quickEmojis : [];
 
   const unreadableMessage =
     aiResult && aiResult.status === "unreadable" ? aiResult.message : null;
@@ -275,14 +276,17 @@ export default function Home() {
   return (
     <div className="min-h-full flex-1 bg-slate-50">
       <main className="mx-auto flex w-full max-w-md flex-col gap-6 px-4 pb-16 pt-8">
-        <header className="space-y-1 text-center">
+        <header className="text-center">
           <h1 className="text-2xl font-bold text-slate-900">AI 답장 추천</h1>
-          <p className="text-sm text-slate-500">
-            대화를 붙여넣거나 파일을 올리면 다음 답장을 추천해드립니다.
-          </p>
         </header>
 
         <section className="space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700">상대방 대화</h2>
+            <p className="text-xs text-slate-500">
+              상대방과 나눈 대화를 붙여넣거나 입력하세요
+            </p>
+          </div>
           <ModeSelector value={mode} onChange={handleModeChange} />
 
           {mode === "paste" && (
@@ -290,7 +294,7 @@ export default function Home() {
               value={pasteText}
               onChange={(event) => setPasteText(event.target.value)}
               placeholder="카카오톡, LINE, WhatsApp, 문자 등 대화 내용을 붙여넣으세요"
-              className="h-48 w-full resize-none rounded-xl border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-900 outline-none focus:border-indigo-400"
+              className="h-64 w-full resize-none rounded-xl border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-900 outline-none focus:border-indigo-400"
             />
           )}
 
@@ -318,7 +322,7 @@ export default function Home() {
               placeholder={
                 "상대방: 오늘 뭐해요?\n나: 아직 특별한 일정은 없어요.\n상대방: 그러면 저녁에 볼래요?"
               }
-              className="h-48 w-full resize-none rounded-xl border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-900 outline-none focus:border-indigo-400"
+              className="h-64 w-full resize-none rounded-xl border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-900 outline-none focus:border-indigo-400"
             />
           )}
         </section>
@@ -357,18 +361,28 @@ export default function Home() {
           <section className="space-y-3">
             <h2 className="text-sm font-semibold text-slate-700">추천 답변</h2>
             <div className="space-y-3">
-              {displayReplies.map((reply, i) => (
-                <ReplyResultCard
-                  key={reply.type}
-                  index={i}
-                  text={reply.text}
-                  translation={reply.translation}
-                  reason={reply.reason}
-                  onRefine={(adjustment) => void handleRefine(reply.type, adjustment)}
-                  isRefining={refiningType === reply.type}
-                />
-              ))}
+              {displayReplies.map((reply, i) => {
+                const emojiOnly = reply.type === "emoji_only";
+                return (
+                  <ReplyResultCard
+                    key={reply.type}
+                    index={i}
+                    text={reply.text}
+                    translation={reply.translation}
+                    emojiOnly={emojiOnly}
+                    onRefine={
+                      emojiOnly
+                        ? undefined
+                        : (adjustment) => void handleRefine(reply.type, adjustment)
+                    }
+                    isRefining={refiningType === reply.type}
+                  />
+                );
+              })}
             </div>
+
+            <QuickEmojis emojis={quickEmojis} />
+
             <button
               type="button"
               onClick={handleRetry}

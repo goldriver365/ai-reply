@@ -29,8 +29,8 @@ const MAX_IMAGES = 6;
 // 클라이언트에서 리사이즈된 이미지라도 비정상적으로 큰 페이로드는 거부한다(base64 문자 수 기준, 대략 6MB 디코딩).
 const MAX_IMAGE_BASE64_LENGTH = 8_000_000;
 
-// 다시 추천 시 참고할 이전 답변 개수/길이 상한(비용 최소화 목적).
-const MAX_PREVIOUS_REPLIES = 3;
+// 다시 추천 시 참고할 이전 답변 개수/길이 상한(비용 최소화 목적). 답변이 4개이므로 4개까지 담는다.
+const MAX_PREVIOUS_REPLIES = 4;
 const MAX_PREVIOUS_REPLY_LENGTH = 300;
 
 const GENERIC_ERROR_MESSAGE = "답변을 만들지 못했습니다. 다시 시도해주세요.";
