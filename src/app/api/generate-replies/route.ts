@@ -52,6 +52,9 @@ const LONG_CONVERSATION_NOTICE =
 const NO_NEW_MESSAGE_NOTICE = "지금은 상대방의 새 메시지가 없어요. 먼저 보낼 말도 참고해보세요.";
 // AI 응답이 구조화 JSON 형식에 맞지 않는 드문 경우에 대비한 안전한 재시도. 무한 재시도는 하지 않는다.
 const MAX_PARSE_ATTEMPTS = 2;
+// Vision이 포함될 수 있어 다른 라우트보다 넉넉하게 잡되, 요청이 무한 대기하지 않도록 상한을 둔다.
+// maxRetries는 일시적 네트워크/5xx 오류에 대한 SDK 자체 재시도 횟수(최대 1회로 제한).
+const REQUEST_OPTIONS = { timeout: 45_000, maxRetries: 1 };
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 type AllowedImageType = (typeof ALLOWED_IMAGE_TYPES)[number];
 const SPEAKER_HINTS = ["other", "me"] as const;
@@ -336,7 +339,7 @@ export async function POST(request: Request) {
           },
         ],
         messages: [{ role: "user", content: userContent }],
-      });
+      }, REQUEST_OPTIONS);
       parsed = response.parsed_output ?? null;
     }
 

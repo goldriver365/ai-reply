@@ -15,6 +15,9 @@ const MAX_CONTEXT_FIELD_LENGTH = 100;
 const MAX_CUSTOM_INSTRUCTION_LENGTH = 60;
 // AI 응답이 구조화 JSON 형식에 맞지 않는 드문 경우에 대비한 안전한 재시도. 무한 재시도는 하지 않는다.
 const MAX_PARSE_ATTEMPTS = 2;
+// 답변 하나만 다듬는 작은 요청이므로 짧게 잡는다. maxRetries는 일시적 네트워크/5xx 오류에 대한
+// SDK 자체 재시도 횟수(최대 1회로 제한).
+const REQUEST_OPTIONS = { timeout: 20_000, maxRetries: 1 };
 
 const GENERIC_ERROR_MESSAGE = "답변을 조정하지 못했습니다. 다시 시도해주세요.";
 const ADJUSTMENTS: readonly RefineAdjustment[] = [
@@ -122,7 +125,7 @@ export async function POST(request: Request) {
           },
         ],
         messages: [{ role: "user", content: promptContent }],
-      });
+      }, REQUEST_OPTIONS);
       parsed = response.parsed_output ?? null;
     }
 

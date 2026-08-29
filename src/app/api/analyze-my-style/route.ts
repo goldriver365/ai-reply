@@ -14,6 +14,9 @@ const MAX_SAMPLES = 5;
 const MAX_SAMPLE_LENGTH = 200;
 // AI 응답이 구조화 JSON 형식에 맞지 않는 드문 경우에 대비한 안전한 재시도. 무한 재시도는 하지 않는다.
 const MAX_PARSE_ATTEMPTS = 2;
+// 짧은 예시 몇 개만 보는 작은 요청이므로 짧게 잡는다. maxRetries는 일시적 네트워크/5xx 오류에
+// 대한 SDK 자체 재시도 횟수(최대 1회로 제한).
+const REQUEST_OPTIONS = { timeout: 20_000, maxRetries: 1 };
 
 const GENERIC_ERROR_MESSAGE = "말투를 기억하지 못했습니다. 다시 시도해주세요.";
 
@@ -66,7 +69,7 @@ export async function POST(request: Request) {
           },
         ],
         messages: [{ role: "user", content: promptContent }],
-      });
+      }, REQUEST_OPTIONS);
       parsed = response.parsed_output ?? null;
     }
 

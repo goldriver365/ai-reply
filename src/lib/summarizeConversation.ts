@@ -33,7 +33,9 @@ export async function summarizeOlderConversation(
         content: buildSummarizePrompt({ olderConversation }),
       },
     ],
-  });
+    // 답변 생성용 메인 호출과 별개로 도는 작은 요청이므로 짧게 잡는다. maxRetries는 일시적
+    // 네트워크/5xx 오류에 대한 SDK 자체 재시도 횟수(최대 1회로 제한).
+  }, { timeout: 20_000, maxRetries: 1 });
 
   const parsed = response.parsed_output;
   if (!parsed) {

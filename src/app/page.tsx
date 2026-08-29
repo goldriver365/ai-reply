@@ -57,6 +57,18 @@ function detectInputMode(text: string): "paste" | "write" {
   return /(^|\n)\s*(상대방|나)\s*[:：]/.test(text) ? "write" : "paste";
 }
 
+// 파일명+크기+lastModified로 만드는 간단한 지문(STEP 12). 같은 사진의 실수 중복 업로드를
+// 막는 용도와, "다시 추천" 시 스크린샷이 그대로인지 확인하는 용도(둘 다) 로 쓴다.
+function fileFingerprint(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+// 현재 이미지 세트 + 추가 설명(note)이 이전 Vision 분석과 같은지 확인하기 위한 지문.
+// 하나라도 바뀌면 값이 달라져 캐시가 자동으로 무효화된다(STEP 12 섹션 11).
+function computeImagesFingerprint(images: UploadedImage[], note: string): string {
+  return images.map((image) => fileFingerprint(image.file)).join("|") + "::" + note.trim();
+}
+
 function AttachIcon() {
   return (
     <svg
@@ -104,6 +116,17 @@ export default function Home() {
   // (STEP 11 섹션 25). 버튼 비활성화로 이미 동시 요청 자체를 막고 있지만, 한 번 더 확인한다.
   const generateRequestIdRef = useRef(0);
   const refineRequestIdRef = useRef(0);
+  const myStyleRequestIdRef = useRef(0);
+  // 요청이 오래 걸릴 때만 버튼 문구를 바꿔 안내한다(STEP 12). 애니메이션은 추가하지 않는다.
+  const [isSlowRequest, setIsSlowRequest] = useState(false);
+  const slowRequestTimeoutRef = useRef<number | null>(null);
+  // 같은 스크린샷 세트로 "다시 추천"할 때 Vision을 다시 호출하지 않도록, 직전 분석에서 AI가
+  // 돌려준 텍스트 요약(parsedConversationSummary)을 지문과 함께 세션 동안만 기억한다(STEP 12).
+  // 이미지나 추가 설명이 바뀌면 지문이 달라져 자동으로 무효화된다.
+  const imagesAnalysisCacheRef = useRef<{ fingerprint: string; summary: string } | null>(null);
+  // 같은 사진이 실수로 여러 번 선택됐을 때 잠깐 보여주는 안내(STEP 12).
+  const [imageNotice, setImageNotice] = useState<string | null>(null);
+  const imageNoticeTimeoutRef = useRef<number | null>(null);
 
   // "내 말투"(STEP 10): 사용자가 opt-in으로 등록한 경우에만 존재하며, 이 기기(localStorage)에만
   // 저장된다. SSR 중에는 localStorage가 없으므로 마운트 후 useEffect에서 불러온다.
@@ -139,10 +162,34 @@ export default function Home() {
     // 비워질 수 있다. setImages 콜백 밖에서 즉시 배열로 변환해 값을 고정한다.
     const selectedFiles = Array.from(files);
 
+    // 같은 사진이 실수로 여러 번 선택된 경우, AI에 중복으로 보내지 않도록 미리 걸러낸다
+    // (STEP 12 섹션 6). 파일명+크기+lastModified로 만든 간단한 지문으로 비교한다.
+    const existingFingerprints = new Set(images.map((image) => fileFingerprint(image.file)));
+    const deduped: File[] = [];
+    let duplicateCount = 0;
+    for (const file of selectedFiles) {
+      const fp = fileFingerprint(file);
+      if (existingFingerprints.has(fp)) {
+        duplicateCount++;
+        continue;
+      }
+      existingFingerprints.add(fp);
+      deduped.push(file);
+    }
+
+    if (duplicateCount > 0) {
+      if (imageNoticeTimeoutRef.current !== null) window.clearTimeout(imageNoticeTimeoutRef.current);
+      setImageNotice(`중복된 사진 ${duplicateCount}장은 제외했어요.`);
+      imageNoticeTimeoutRef.current = window.setTimeout(() => {
+        setImageNotice(null);
+        imageNoticeTimeoutRef.current = null;
+      }, 2500);
+    }
+
     setImages((prev) => {
       const remaining = MAX_IMAGES - prev.length;
       if (remaining <= 0) return prev;
-      const added: UploadedImage[] = selectedFiles.slice(0, remaining).map((file) => ({
+      const added: UploadedImage[] = deduped.slice(0, remaining).map((file) => ({
         id: `img-${Date.now()}-${imageIdCounter++}`,
         file,
         previewUrl: URL.createObjectURL(file),
@@ -202,18 +249,42 @@ export default function Home() {
         ? aiResult.replies.map((r) => r.text)
         : undefined;
 
-    if (hasImages) {
+    // 이미지·추가 설명이 직전 Vision 분석과 같다면(지문 일치) 캐시된 요약을 재사용해
+    // 스크린샷을 다시 분석하지 않는다(STEP 12 섹션 10~11). 하나라도 바뀌면 지문이 달라져
+    // 자동으로 무효화되고 새로 분석한다.
+    const imagesFingerprint = hasImages ? computeImagesFingerprint(images, conversationText) : null;
+    const cachedSummary =
+      imagesFingerprint && imagesAnalysisCacheRef.current?.fingerprint === imagesFingerprint
+        ? imagesAnalysisCacheRef.current.summary
+        : null;
+
+    const startLoading = () => {
       isRequestInFlight.current = true;
       setIsLoading(true);
       setErrorMessage(null);
       setNotice(null);
+      // 요청이 오래 걸리는 경우에만 안내 문구를 바꾼다(짧게 끝나면 아무것도 보이지 않는다).
+      slowRequestTimeoutRef.current = window.setTimeout(() => setIsSlowRequest(true), 8000);
+    };
+    const endLoading = () => {
+      isRequestInFlight.current = false;
+      setIsLoading(false);
+      if (slowRequestTimeoutRef.current !== null) {
+        window.clearTimeout(slowRequestTimeoutRef.current);
+        slowRequestTimeoutRef.current = null;
+      }
+      setIsSlowRequest(false);
+    };
+
+    if (hasImages && !cachedSummary) {
+      // 처음 분석하거나, 사진/설명이 바뀌어 이전 분석을 재사용할 수 없는 경우: Vision 분석 1회.
+      startLoading();
 
       let resizedImages;
       try {
         resizedImages = await Promise.all(images.map((image) => resizeImageFile(image.file)));
       } catch {
-        isRequestInFlight.current = false;
-        setIsLoading(false);
+        endLoading();
         if (isStale()) return;
         setAiResult(null);
         setErrorMessage("이미지를 처리하지 못했습니다. 다시 시도해주세요.");
@@ -233,12 +304,22 @@ export default function Home() {
         speakerHint,
       });
 
-      isRequestInFlight.current = false;
-      setIsLoading(false);
+      endLoading();
       if (isStale()) return; // 그 사이 새 요청이 시작됐다면 이 결과는 버린다.
 
       if (response.ok) {
         setAiResult(response.result);
+        // 다음 "다시 추천"에서 같은 사진이면 Vision을 다시 호출하지 않도록 요약을 기억해둔다.
+        if (
+          response.result.status === "ok" &&
+          response.result.parsedConversationSummary &&
+          imagesFingerprint
+        ) {
+          imagesAnalysisCacheRef.current = {
+            fingerprint: imagesFingerprint,
+            summary: response.result.parsedConversationSummary,
+          };
+        }
       } else {
         setAiResult(null);
         setErrorMessage(response.message);
@@ -246,22 +327,21 @@ export default function Home() {
       return;
     }
 
-    const conversation = conversationText;
+    // 텍스트 경로: 직접 입력/붙여넣은 대화, 또는 변경되지 않은 스크린샷의 캐시된 요약("다시 추천").
+    const conversation = cachedSummary ?? conversationText;
     if (conversation.trim().length === 0) return;
 
     // 같은 대화라면 이전에 캐시해둔 핵심 맥락을 재사용해 긴 대화를 다시 요약하지 않는다.
+    // (캐시된 스크린샷 요약을 쓰는 경우는 별개의 캐시이므로 여기서는 재사용하지 않는다.)
     const cachedContext =
-      conversationContextCacheRef.current?.conversation === conversation
+      !cachedSummary && conversationContextCacheRef.current?.conversation === conversation
         ? conversationContextCacheRef.current.context
         : undefined;
 
-    isRequestInFlight.current = true;
-    setIsLoading(true);
-    setErrorMessage(null);
-    setNotice(null);
+    startLoading();
 
     const response = await generateReplies({
-      inputMode: detectInputMode(conversation),
+      inputMode: cachedSummary ? "paste" : detectInputMode(conversation),
       style,
       relationship,
       goal,
@@ -273,16 +353,17 @@ export default function Home() {
       speakerHint,
     });
 
-    isRequestInFlight.current = false;
-    setIsLoading(false);
+    endLoading();
     if (isStale()) return; // 그 사이 새 요청이 시작됐다면 이 결과는 버린다.
 
     if (response.ok) {
       setAiResult(response.result);
       setNotice(response.notice ?? null);
-      conversationContextCacheRef.current = response.conversationContext
-        ? { conversation, context: response.conversationContext }
-        : null;
+      if (!cachedSummary) {
+        conversationContextCacheRef.current = response.conversationContext
+          ? { conversation, context: response.conversationContext }
+          : null;
+      }
     } else {
       setAiResult(null);
       setErrorMessage(response.message);
@@ -398,12 +479,14 @@ export default function Home() {
       return;
     }
 
+    const requestId = ++myStyleRequestIdRef.current;
     setMyStyleBusy(true);
     setMyStyleError(null);
 
     const response = await analyzeMyStyle(samples);
 
     setMyStyleBusy(false);
+    if (requestId !== myStyleRequestIdRef.current) return; // 그 사이 새 요청이 시작됐다면 버린다.
 
     if (response.ok) {
       saveUserStyleProfile(response.profile);
@@ -503,6 +586,7 @@ export default function Home() {
               onMove={handleMoveImage}
             />
           )}
+          {imageNotice && <p className="text-[11px] text-slate-400">{imageNotice}</p>}
         </section>
 
         <section className="space-y-3">
@@ -624,7 +708,11 @@ export default function Home() {
           onClick={handleRecommend}
           className="h-14 w-full rounded-xl bg-emerald-600 text-base font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
         >
-          {isLoading ? "답변을 만들고 있어요..." : "답변 추천"}
+          {isLoading
+            ? isSlowRequest
+              ? "답변 생성 시간이 조금 길어지고 있어요..."
+              : "답변을 만들고 있어요..."
+            : "답변 추천"}
         </button>
 
         {errorMessage && <p className="text-center text-sm text-red-600">{errorMessage}</p>}

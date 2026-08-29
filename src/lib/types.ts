@@ -110,6 +110,12 @@ export interface AIReplyOkResult {
   quickReactions: string[];
   /** 짧은 리액션만으로 답하는 것이 지금 상황에 적절한지. false면 이모티콘만 보내기 영역을 숨긴다. */
   showQuickReactions: boolean;
+  /**
+   * 스크린샷(이미지) 입력일 때만 채워지는, 대화를 "상대방: .../나: ..." 형식의 짧은 텍스트로
+   * 재구성한 것(STEP 12). 텍스트 입력이면 빈 문자열. 화면에 노출되지 않으며, "다시 추천" 시
+   * 이미지를 다시 Vision 분석하지 않고 텍스트로 재사용하기 위한 내부 캐시 용도로만 쓰인다.
+   */
+  parsedConversationSummary: string;
 }
 
 // 이미지를 정확히 읽을 수 없는 등, 답변을 억지로 만들지 않고 사용자에게 안내만 하는 경우
