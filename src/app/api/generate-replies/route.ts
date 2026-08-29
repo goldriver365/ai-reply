@@ -49,8 +49,17 @@ const MAX_PREVIOUS_REPLY_LENGTH = 300;
 const GENERIC_ERROR_MESSAGE = "답변을 만들지 못했습니다. 다시 시도해주세요.";
 const LONG_CONVERSATION_NOTICE =
   "전체 대화 분석에 일부 제한이 있어 최근 대화를 중심으로 답변했습니다.";
+const NO_NEW_MESSAGE_NOTICE = "지금은 상대방의 새 메시지가 없어요. 먼저 보낼 말도 참고해보세요.";
+// AI 응답이 구조화 JSON 형식에 맞지 않는 드문 경우에 대비한 안전한 재시도. 무한 재시도는 하지 않는다.
+const MAX_PARSE_ATTEMPTS = 2;
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 type AllowedImageType = (typeof ALLOWED_IMAGE_TYPES)[number];
+const SPEAKER_HINTS = ["other", "me"] as const;
+type SpeakerHint = (typeof SPEAKER_HINTS)[number];
+
+function isSpeakerHint(value: unknown): value is SpeakerHint {
+  return typeof value === "string" && (SPEAKER_HINTS as readonly string[]).includes(value);
+}
 
 function isReplyStyle(value: unknown): value is ReplyStyle {
   return typeof value === "string" && (REPLY_STYLES as readonly string[]).includes(value);
@@ -141,6 +150,7 @@ export async function POST(request: Request) {
     previousReplies,
     conversationContext,
     myStyle,
+    speakerHint,
   } = (body ?? {}) as {
     conversation?: unknown;
     style?: unknown;
@@ -153,6 +163,7 @@ export async function POST(request: Request) {
     previousReplies?: unknown;
     conversationContext?: unknown;
     myStyle?: unknown;
+    speakerHint?: unknown;
   };
 
   const resolvedStyle: ReplyStyle = isReplyStyle(style) ? style : "자연스럽게";
@@ -170,6 +181,11 @@ export async function POST(request: Request) {
   const parsedMyStyle = parseMyStyle(myStyle);
   const resolvedMyStyle: UserStyleProfile | undefined =
     parsedMyStyle && parsedMyStyle.confidence !== "low" ? parsedMyStyle : undefined;
+  // "needsSpeakerCheck" 응답 후 사용자가 직접 골라준 화자 정보(STEP 11). 있으면 프롬프트에서
+  // 확정된 사실로 취급해 다시 되묻지 않는다.
+  const resolvedSpeakerHint: SpeakerHint | undefined = isSpeakerHint(speakerHint)
+    ? speakerHint
+    : undefined;
 
   let userContent: Anthropic.MessageParam["content"];
   // 이번 요청에서 실제로 사용한(또는 새로 만든) 대화 맥락. 응답에 실어 보내면
@@ -215,6 +231,7 @@ export async function POST(request: Request) {
         note: resolvedNote,
         previousReplies: resolvedPreviousReplies,
         myStyle: resolvedMyStyle,
+        speakerHint: resolvedSpeakerHint,
       }),
     });
     userContent = content;
@@ -244,6 +261,7 @@ export async function POST(request: Request) {
         speechLevel: resolvedSpeechLevel,
         previousReplies: resolvedPreviousReplies,
         myStyle: resolvedMyStyle,
+        speakerHint: resolvedSpeakerHint,
       });
     } else {
       // 긴 대화: 최근 대화는 원문 그대로, 그 이전은 핵심 맥락으로 압축해서 사용한다.
@@ -281,6 +299,7 @@ export async function POST(request: Request) {
         speechLevel: resolvedSpeechLevel,
         previousReplies: resolvedPreviousReplies,
         myStyle: resolvedMyStyle,
+        speakerHint: resolvedSpeakerHint,
       });
 
       // 개발 중 확인용 디버그 정보. 대화 내용 자체는 절대 출력하지 않는다.
@@ -298,26 +317,37 @@ export async function POST(request: Request) {
   try {
     const client = getAnthropicClient();
 
-    const response = await client.messages.parse({
-      model: "claude-sonnet-5",
-      max_tokens: 2048,
-      output_config: {
-        effort: "medium",
-        format: zodOutputFormat(ReplyResponseSchema),
-      },
-      system: [
-        {
-          type: "text",
-          text: REPLY_SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" },
+    // AI 응답이 구조화 JSON 형식에 맞지 않는 드문 경우, 무한 재시도가 아니라 1회만 안전하게
+    // 다시 시도한다(섹션 23). 그래도 실패하면 일반적인 오류 메시지로 처리한다.
+    let parsed: AIReplyResult | null = null;
+    for (let attempt = 0; attempt < MAX_PARSE_ATTEMPTS && !parsed; attempt++) {
+      const response = await client.messages.parse({
+        model: "claude-sonnet-5",
+        max_tokens: 2048,
+        output_config: {
+          effort: "medium",
+          format: zodOutputFormat(ReplyResponseSchema),
         },
-      ],
-      messages: [{ role: "user", content: userContent }],
-    });
+        system: [
+          {
+            type: "text",
+            text: REPLY_SYSTEM_PROMPT,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+        messages: [{ role: "user", content: userContent }],
+      });
+      parsed = response.parsed_output ?? null;
+    }
 
-    const parsed = response.parsed_output;
     if (!parsed) {
       return NextResponse.json({ error: GENERIC_ERROR_MESSAGE }, { status: 502 });
+    }
+
+    // 마지막 관련 메시지를 사용자 본인이 보낸 것으로 확인된 경우, 기존 notice 영역을 재사용해
+    // 화면을 복잡하게 만들지 않고 짧게 안내한다(섹션 5).
+    if (parsed.status === "ok" && parsed.context.lastMessageFrom === "me" && !notice) {
+      notice = NO_NEW_MESSAGE_NOTICE;
     }
 
     const result: AIReplyResult = parsed;

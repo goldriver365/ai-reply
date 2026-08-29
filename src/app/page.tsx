@@ -100,6 +100,10 @@ export default function Home() {
   } | null>(null);
   const justRefinedTimeoutRef = useRef<number | null>(null);
   const isRequestInFlight = useRef(false);
+  // 오래된 요청의 결과가 그 사이 시작된 새 요청의 결과를 덮어쓰지 않도록 하는 방어적 가드
+  // (STEP 11 섹션 25). 버튼 비활성화로 이미 동시 요청 자체를 막고 있지만, 한 번 더 확인한다.
+  const generateRequestIdRef = useRef(0);
+  const refineRequestIdRef = useRef(0);
 
   // "내 말투"(STEP 10): 사용자가 opt-in으로 등록한 경우에만 존재하며, 이 기기(localStorage)에만
   // 저장된다. SSR 중에는 localStorage가 없으므로 마운트 후 useEffect에서 불러온다.
@@ -181,15 +185,22 @@ export default function Home() {
   };
 
   // 실제 AI 호출. 중복 클릭으로 여러 번 호출되지 않도록 막는다.
-  const runAiGenerate = async () => {
+  // speakerHint는 "needsSpeakerCheck" 응답 후 사용자가 [상대방]/[나]를 직접 골랐을 때만 전달된다.
+  const runAiGenerate = async (speakerHint?: "other" | "me") => {
     if (isRequestInFlight.current || refiningIndex !== null) return;
 
     // 새로 답변 4개를 통째로 만드므로, 이전 다듬기의 "되돌리기"/"수정됨" 표시는 더 이상 의미가 없다.
     clearRefineIndicators();
 
+    const requestId = ++generateRequestIdRef.current;
+    const isStale = () => requestId !== generateRequestIdRef.current;
+
     // 다시 추천 시 같은 문장이 반복되지 않도록 직전 답변을 함께 전달한다(대화 재분석은 하지 않음).
+    // 단, 화자 확인 질문에 답하는 요청이라면 직전 결과는 질문 자체였으므로 참고하지 않는다.
     const previousReplies =
-      aiResult && aiResult.status === "ok" ? aiResult.replies.map((r) => r.text) : undefined;
+      !speakerHint && aiResult && aiResult.status === "ok"
+        ? aiResult.replies.map((r) => r.text)
+        : undefined;
 
     if (hasImages) {
       isRequestInFlight.current = true;
@@ -203,6 +214,7 @@ export default function Home() {
       } catch {
         isRequestInFlight.current = false;
         setIsLoading(false);
+        if (isStale()) return;
         setAiResult(null);
         setErrorMessage("이미지를 처리하지 못했습니다. 다시 시도해주세요.");
         return;
@@ -218,10 +230,12 @@ export default function Home() {
         images: resizedImages,
         note: conversationText.trim().length > 0 ? conversationText.trim() : undefined,
         myStyle: myStyleProfile ?? undefined,
+        speakerHint,
       });
 
       isRequestInFlight.current = false;
       setIsLoading(false);
+      if (isStale()) return; // 그 사이 새 요청이 시작됐다면 이 결과는 버린다.
 
       if (response.ok) {
         setAiResult(response.result);
@@ -256,10 +270,12 @@ export default function Home() {
       conversation,
       conversationContext: cachedContext,
       myStyle: myStyleProfile ?? undefined,
+      speakerHint,
     });
 
     isRequestInFlight.current = false;
     setIsLoading(false);
+    if (isStale()) return; // 그 사이 새 요청이 시작됐다면 이 결과는 버린다.
 
     if (response.ok) {
       setAiResult(response.result);
@@ -275,6 +291,8 @@ export default function Home() {
 
   const handleRecommend = () => void runAiGenerate();
   const handleRetry = () => void runAiGenerate();
+  // "마지막 메시지는 누구의 말인가요?" 질문에 사용자가 직접 답한다(STEP 11).
+  const handleSpeakerAnswer = (answer: "other" | "me") => void runAiGenerate(answer);
 
   // 답변 카드 하나만 다듬는다. 전체 대화를 다시 분석하지 않고, 선택된 답변 + 관계/말투/목적/분위기
   // 같은 최소한의 맥락만으로 작은 AI 호출 1회를 보낸다. 다른 답변 3개는 건드리지 않는다.
@@ -287,6 +305,8 @@ export default function Home() {
     if (isRequestInFlight.current || refiningIndex !== null) return;
     const target = aiResult.replies[index];
     if (!target) return;
+
+    const requestId = ++refineRequestIdRef.current;
 
     setRefiningIndex(index);
     setErrorMessage(null);
@@ -309,6 +329,7 @@ export default function Home() {
     });
 
     setRefiningIndex(null);
+    if (requestId !== refineRequestIdRef.current) return; // 그 사이 새 요청이 시작됐다면 버린다.
 
     if (response.ok) {
       setAiResult((prev) => {
@@ -421,6 +442,11 @@ export default function Home() {
 
   const unreadableMessage =
     aiResult && aiResult.status === "unreadable" ? aiResult.message : null;
+
+  // 화자(나/상대방) 확신이 낮을 때만 짧게 되묻는다(STEP 11). lastMessagePreview는 사용자 본인의
+  // 대화 내용이라 그대로 보여줘도 안전하며, 어떤 메시지를 두고 묻는 것인지 알아볼 수 있게 한다.
+  const speakerCheckPreview =
+    aiResult && aiResult.status === "needsSpeakerCheck" ? aiResult.lastMessagePreview : null;
 
   return (
     <div className="min-h-full flex-1 bg-stone-50">
@@ -606,6 +632,31 @@ export default function Home() {
           <p className="text-center text-sm text-amber-600">{unreadableMessage}</p>
         )}
         {notice && <p className="text-center text-xs text-slate-400">{notice}</p>}
+
+        {speakerCheckPreview && (
+          <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-center">
+            <p className="text-sm font-medium text-amber-700">마지막 메시지는 누구의 말인가요?</p>
+            <p className="text-xs text-amber-600">“{speakerCheckPreview}”</p>
+            <div className="flex justify-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => handleSpeakerAnswer("other")}
+                disabled={isBusy}
+                className="h-9 flex-1 max-w-32 rounded-lg bg-amber-600 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                상대방
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSpeakerAnswer("me")}
+                disabled={isBusy}
+                className="h-9 flex-1 max-w-32 rounded-lg border border-amber-300 bg-white text-sm font-medium text-amber-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                나
+              </button>
+            </div>
+          </div>
+        )}
 
         {displayReplies && (
           <section className="space-y-3">

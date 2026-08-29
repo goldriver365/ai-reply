@@ -92,6 +92,11 @@ export interface AIReplyContext {
   goal: string;
   tone: string;
   situation: ReplySituation;
+  /**
+   * 마지막 관련 메시지를 누가 보냈는지(STEP 11, 내부 참고용). "me"면 상대방의 새 메시지가
+   * 없는 상태일 수 있으므로, 서버가 이 값을 보고 notice로 짧게 안내한다(화면에 직접 노출 X).
+   */
+  lastMessageFrom: "other" | "me" | "unclear";
 }
 
 export interface AIReplyOkResult {
@@ -113,7 +118,18 @@ export interface AIReplyUnreadableResult {
   message: string;
 }
 
-export type AIReplyResult = AIReplyOkResult | AIReplyUnreadableResult;
+// 화자(나/상대방) 판단 확신도가 낮을 때(주로 스크린샷), 억지로 추정하지 않고 아주 짧게
+// 되묻는 경우(STEP 11). lastMessagePreview는 사용자 본인의 대화 내용이라 그대로 되보여줘도
+// 안전하며, 어떤 메시지를 묻는 것인지 알아볼 수 있게 한다.
+export interface AIReplyNeedsSpeakerCheckResult {
+  status: "needsSpeakerCheck";
+  lastMessagePreview: string;
+}
+
+export type AIReplyResult =
+  | AIReplyOkResult
+  | AIReplyUnreadableResult
+  | AIReplyNeedsSpeakerCheckResult;
 
 // 이미지 넣기(STEP 3)에서 서버로 보내는, 클라이언트에서 리사이즈된 이미지
 export interface ResizedImagePayload {

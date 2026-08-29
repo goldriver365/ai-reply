@@ -53,6 +53,13 @@ const ReplyContextSchema = z.object({
     .describe(
       "판단한 대화 상황. general/schedule/decline/work/conflict/apology/comfort/casual 중 하나.",
     ),
+  lastMessageFrom: z
+    .enum(["other", "me", "unclear"])
+    .describe(
+      "답변을 만들기 전에 확인한, 마지막 관련 메시지를 누가 보냈는지. 상대방이면 other, " +
+        "사용자 본인이면 me, 판단이 애매하면 unclear(단 화자 확신이 너무 낮아 아예 답변을 만들 " +
+        "수 없는 정도면 status를 needsSpeakerCheck로 응답한다).",
+    ),
 });
 
 const ReplyOkSchema = z.object({
@@ -102,9 +109,22 @@ const ReplyUnreadableSchema = z.object({
     ),
 });
 
+// 화자(나/상대방) 확신도가 너무 낮을 때(주로 스크린샷) 억지로 추정하지 않고 아주 짧게
+// 되묻는 전용 응답(STEP 11). lastMessagePreview는 사용자 자신의 대화 내용이므로 그대로
+// 되돌려줘도 안전하며, 어떤 메시지를 두고 묻는 것인지 사용자가 알아볼 수 있게 한다.
+const ReplyNeedsSpeakerCheckSchema = z.object({
+  status: z.literal("needsSpeakerCheck"),
+  lastMessagePreview: z
+    .string()
+    .min(1)
+    .max(80)
+    .describe("화자가 불확실한 마지막 메시지를 짧게 그대로 인용한 것(80자 이내)."),
+});
+
 export const ReplyResponseSchema = z.discriminatedUnion("status", [
   ReplyOkSchema,
   ReplyUnreadableSchema,
+  ReplyNeedsSpeakerCheckSchema,
 ]);
 
 export type ReplyResponse = z.infer<typeof ReplyResponseSchema>;

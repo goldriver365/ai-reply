@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "@/lib/anthropicClient";
 import { RefineResponseSchema, UserStyleProfileSchema } from "@/lib/replySchema";
 import { REFINE_SYSTEM_PROMPT, buildRefinePrompt } from "@/lib/prompt";
-import type { RefineAdjustment } from "@/lib/types";
+import type { RefineAdjustment, RefineResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -13,6 +13,8 @@ const MAX_TEXT_LENGTH = 500;
 const MAX_CONTEXT_FIELD_LENGTH = 100;
 // "직접 입력" 지시문은 짧은 한 마디 정도만 받는다(예: "조금 더 차갑게").
 const MAX_CUSTOM_INSTRUCTION_LENGTH = 60;
+// AI 응답이 구조화 JSON 형식에 맞지 않는 드문 경우에 대비한 안전한 재시도. 무한 재시도는 하지 않는다.
+const MAX_PARSE_ATTEMPTS = 2;
 
 const GENERIC_ERROR_MESSAGE = "답변을 조정하지 못했습니다. 다시 시도해주세요.";
 const ADJUSTMENTS: readonly RefineAdjustment[] = [
@@ -86,44 +88,44 @@ export async function POST(request: Request) {
 
   try {
     const client = getAnthropicClient();
-
-    const response = await client.messages.parse({
-      model: "claude-sonnet-5",
-      max_tokens: 512,
-      output_config: {
-        effort: "low",
-        format: zodOutputFormat(RefineResponseSchema),
-      },
-      system: [
-        {
-          type: "text",
-          text: REFINE_SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: [
-        {
-          role: "user",
-          content: buildRefinePrompt({
-            text: text.trim().slice(0, MAX_TEXT_LENGTH),
-            adjustment,
-            customInstruction:
-              adjustment === "custom" && typeof customInstruction === "string"
-                ? customInstruction.trim().slice(0, MAX_CUSTOM_INSTRUCTION_LENGTH)
-                : undefined,
-            language: toContextField(language, "알 수 없음"),
-            relationship: toContextField(relationship, "자동 판단"),
-            goal: toContextField(goal, "자동 추천"),
-            tone: toContextField(tone, "알 수 없음"),
-            speechLevel: toContextField(speechLevel, "자동"),
-            myStyle:
-              adjustment === "myStyle" && parsedMyStyle.success ? parsedMyStyle.data : undefined,
-          }),
-        },
-      ],
+    const promptContent = buildRefinePrompt({
+      text: text.trim().slice(0, MAX_TEXT_LENGTH),
+      adjustment,
+      customInstruction:
+        adjustment === "custom" && typeof customInstruction === "string"
+          ? customInstruction.trim().slice(0, MAX_CUSTOM_INSTRUCTION_LENGTH)
+          : undefined,
+      language: toContextField(language, "알 수 없음"),
+      relationship: toContextField(relationship, "자동 판단"),
+      goal: toContextField(goal, "자동 추천"),
+      tone: toContextField(tone, "알 수 없음"),
+      speechLevel: toContextField(speechLevel, "자동"),
+      myStyle: adjustment === "myStyle" && parsedMyStyle.success ? parsedMyStyle.data : undefined,
     });
 
-    const parsed = response.parsed_output;
+    // AI 응답이 구조화 JSON 형식에 맞지 않는 드문 경우, 무한 재시도가 아니라 1회만 안전하게
+    // 다시 시도한다(섹션 23). 그래도 실패하면 일반적인 오류 메시지로 처리한다.
+    let parsed: RefineResponse | null = null;
+    for (let attempt = 0; attempt < MAX_PARSE_ATTEMPTS && !parsed; attempt++) {
+      const response = await client.messages.parse({
+        model: "claude-sonnet-5",
+        max_tokens: 512,
+        output_config: {
+          effort: "low",
+          format: zodOutputFormat(RefineResponseSchema),
+        },
+        system: [
+          {
+            type: "text",
+            text: REFINE_SYSTEM_PROMPT,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+        messages: [{ role: "user", content: promptContent }],
+      });
+      parsed = response.parsed_output ?? null;
+    }
+
     if (!parsed) {
       return NextResponse.json({ error: GENERIC_ERROR_MESSAGE }, { status: 502 });
     }

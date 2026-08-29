@@ -1,3 +1,4 @@
+import { ReplyResponseSchema, RefineResponseSchema, UserStyleProfileSchema } from "./replySchema";
 import type {
   AIReplyResult,
   ConversationContextData,
@@ -25,6 +26,8 @@ export type GenerateRepliesInput = {
   conversationContext?: ConversationContextData;
   /** 사용자가 opt-in으로 등록해 이 기기에 저장해둔 "내 말투"(STEP 10). 없으면 전달하지 않는다. */
   myStyle?: UserStyleProfile;
+  /** "needsSpeakerCheck" 응답 후 사용자가 [상대방]/[나] 중 직접 선택한 답(STEP 11) */
+  speakerHint?: "other" | "me";
 } & (
   | { inputMode: "paste" | "write"; conversation: string }
   | { inputMode: "file"; images: ResizedImagePayload[]; note?: string }
@@ -55,7 +58,7 @@ export async function generateReplies(
     });
 
     const data = (await res.json().catch(() => null)) as
-      | { result: AIReplyResult; conversationContext?: ConversationContextData; notice?: string }
+      | { result: unknown; conversationContext?: ConversationContextData; notice?: string }
       | { error: string }
       | null;
 
@@ -63,9 +66,16 @@ export async function generateReplies(
       return { ok: false, message: FAILURE_MESSAGE };
     }
 
+    // 서버가 이미 구조화 출력으로 형식을 보장하지만, 잘못된 값을 그대로 화면에 렌더링하지
+    // 않도록 클라이언트에서도 한 번 더 검증한다(STEP 11 섹션 22: replies 길이, 필수 필드 등).
+    const validated = ReplyResponseSchema.safeParse(data.result);
+    if (!validated.success) {
+      return { ok: false, message: FAILURE_MESSAGE };
+    }
+
     return {
       ok: true,
-      result: data.result,
+      result: validated.data as AIReplyResult,
       conversationContext: data.conversationContext,
       notice: data.notice,
     };
@@ -102,7 +112,7 @@ export async function refineReply(input: RefineReplyInput): Promise<RefineReplyR
     });
 
     const data = (await res.json().catch(() => null)) as
-      | { result: RefineResponse }
+      | { result: unknown }
       | { error: string }
       | null;
 
@@ -110,7 +120,12 @@ export async function refineReply(input: RefineReplyInput): Promise<RefineReplyR
       return { ok: false, message: REFINE_FAILURE_MESSAGE };
     }
 
-    return { ok: true, result: data.result };
+    const validated = RefineResponseSchema.safeParse(data.result);
+    if (!validated.success) {
+      return { ok: false, message: REFINE_FAILURE_MESSAGE };
+    }
+
+    return { ok: true, result: validated.data as RefineResponse };
   } catch {
     return { ok: false, message: REFINE_FAILURE_MESSAGE };
   }
@@ -133,7 +148,7 @@ export async function analyzeMyStyle(samples: string[]): Promise<AnalyzeMyStyleR
     });
 
     const data = (await res.json().catch(() => null)) as
-      | { result: UserStyleProfile }
+      | { result: unknown }
       | { error: string }
       | null;
 
@@ -141,7 +156,12 @@ export async function analyzeMyStyle(samples: string[]): Promise<AnalyzeMyStyleR
       return { ok: false, message: MY_STYLE_FAILURE_MESSAGE };
     }
 
-    return { ok: true, profile: data.result };
+    const validated = UserStyleProfileSchema.safeParse(data.result);
+    if (!validated.success) {
+      return { ok: false, message: MY_STYLE_FAILURE_MESSAGE };
+    }
+
+    return { ok: true, profile: validated.data as UserStyleProfile };
   } catch {
     return { ok: false, message: MY_STYLE_FAILURE_MESSAGE };
   }
