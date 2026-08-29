@@ -77,9 +77,30 @@ export async function generateReplies(
 
     // 서버가 이미 구조화 출력으로 형식을 보장하지만, 잘못된 값을 그대로 화면에 렌더링하지
     // 않도록 클라이언트에서도 한 번 더 검증한다(STEP 11 섹션 22: replies 길이, 필수 필드 등).
+    // 주의: OpenAI Structured Outputs 호환을 위해 replySchema.ts의 zod 스키마에서
+    // .length()/.min() 같은 길이 제약을 뺐기 때문에(강제되지 않음), 여기서 코드로 직접
+    // "정확히 4개", "빈 문자열 금지" 같은 하드 요구사항을 한 번 더 확인한다.
     const validated = ReplyResponseSchema.safeParse(data.result);
     if (!validated.success) {
       return { ok: false, message: FAILURE_MESSAGE };
+    }
+
+    if (validated.data.status === "ok") {
+      const { replies } = validated.data;
+      const isValid =
+        replies.length === 4 &&
+        replies.every((reply) => reply.text.trim().length > 0 && reply.label.trim().length > 0);
+      if (!isValid) {
+        return { ok: false, message: FAILURE_MESSAGE };
+      }
+    } else if (validated.data.status === "unreadable") {
+      if (validated.data.message.trim().length === 0) {
+        return { ok: false, message: FAILURE_MESSAGE };
+      }
+    } else if (validated.data.status === "needsSpeakerCheck") {
+      if (validated.data.lastMessagePreview.trim().length === 0) {
+        return { ok: false, message: FAILURE_MESSAGE };
+      }
     }
 
     return {
@@ -130,7 +151,7 @@ export async function refineReply(input: RefineReplyInput): Promise<RefineReplyR
     }
 
     const validated = RefineResponseSchema.safeParse(data.result);
-    if (!validated.success) {
+    if (!validated.success || validated.data.text.trim().length === 0) {
       return { ok: false, message: REFINE_FAILURE_MESSAGE };
     }
 
