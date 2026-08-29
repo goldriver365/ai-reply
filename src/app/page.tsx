@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ChipSelect from "@/components/ChipSelect";
-import ImageUploader, { MAX_IMAGES } from "@/components/ImageUploader";
+import ImageUploader, { MAX_IMAGES, type ImageUploaderHandle } from "@/components/ImageUploader";
 import LabeledSelect from "@/components/LabeledSelect";
 import QuickEmojis from "@/components/QuickEmojis";
 import ReplyResultCard from "@/components/ReplyResultCard";
@@ -89,7 +89,7 @@ function AttachIcon() {
 export default function Home() {
   const [conversationText, setConversationText] = useState("");
   const [images, setImages] = useState<UploadedImage[]>([]);
-  const [showAttach, setShowAttach] = useState(false);
+  const imageUploaderRef = useRef<ImageUploaderHandle>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [style, setStyle] = useState<ReplyStyle>(REPLY_STYLES[0]);
@@ -234,8 +234,8 @@ export default function Home() {
     if (imageFiles.length === 0) return;
 
     // 이미지 데이터가 텍스트로 붙여넣어지지 않도록 막고, 대신 스크린샷 첨부로 추가한다.
+    // 썸네일은 상대방 대화 입력창 안에 바로 나타난다(별도 업로드 창이 없다).
     event.preventDefault();
-    setShowAttach(true);
     handleAddImages(imageFiles);
   };
 
@@ -575,24 +575,39 @@ export default function Home() {
             </p>
           </div>
 
-          <textarea
-            value={conversationText}
-            onChange={(event) => setConversationText(event.target.value)}
-            onPaste={handlePasteConversation}
-            aria-label="상대방 대화 입력"
-            placeholder={
-              hasImages
-                ? "추가 설명 (선택)\n예: 최근 조금 어색해졌어요 / 제가 먼저 만나자고 하고 싶어요"
-                : "상대방: 오늘 뭐해요?\n나: 아직 특별한 일정은 없어요.\n상대방: 그러면 저녁에 볼래요?"
-            }
-            className="h-64 w-full resize-none rounded-xl border border-slate-200 bg-white p-4 text-sm leading-relaxed text-slate-900 outline-none focus:border-emerald-400"
-          />
+          {/* 별도 업로드 상자 없이, 선택하거나 붙여넣은 스크린샷이 이 입력창 안에 바로 보이도록
+              썸네일 줄과 텍스트 입력을 하나의 테두리 안에 함께 둔다. */}
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-emerald-400">
+            <div className={hasImages ? "border-b border-slate-100" : undefined}>
+              <ImageUploader
+                ref={imageUploaderRef}
+                images={images}
+                onAdd={handleAddImages}
+                onRemove={handleRemoveImage}
+                onMove={handleMoveImage}
+                disabled={images.length >= MAX_IMAGES}
+              />
+            </div>
+            <textarea
+              value={conversationText}
+              onChange={(event) => setConversationText(event.target.value)}
+              onPaste={handlePasteConversation}
+              aria-label="상대방 대화 입력"
+              placeholder={
+                hasImages
+                  ? "추가 설명 (선택)\n예: 최근 조금 어색해졌어요 / 제가 먼저 만나자고 하고 싶어요"
+                  : "상대방: 오늘 뭐해요?\n나: 아직 특별한 일정은 없어요.\n상대방: 그러면 저녁에 볼래요?"
+              }
+              className="h-64 w-full resize-none bg-transparent p-4 text-sm leading-relaxed text-slate-900 outline-none"
+            />
+          </div>
 
           <div className="flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={() => setShowAttach((prev) => !prev)}
-              className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              onClick={() => imageUploaderRef.current?.open()}
+              disabled={images.length >= MAX_IMAGES}
+              className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <AttachIcon />
               사진 첨부
@@ -600,14 +615,6 @@ export default function Home() {
             <span className="text-[11px] text-slate-400">대화 내용은 저장하지 않습니다.</span>
           </div>
 
-          {(showAttach || hasImages) && (
-            <ImageUploader
-              images={images}
-              onAdd={handleAddImages}
-              onRemove={handleRemoveImage}
-              onMove={handleMoveImage}
-            />
-          )}
           {imageNotice && <p className="text-[11px] text-slate-400">{imageNotice}</p>}
         </section>
 
