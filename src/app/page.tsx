@@ -535,14 +535,12 @@ export default function Home() {
     <div className="min-h-full flex-1 bg-stone-50">
       <main className="mx-auto flex w-full max-w-md flex-col gap-5 px-4 pb-16 pt-6">
         <header className="flex items-center">
-          {/* TODO: 공식 로고 파일(public/logo.png) 수신 후 아래 자리표시자를
-              <img src="/logo.png" alt="말해줄게" className="h-9 w-9 rounded-full object-contain" /> 로 교체 */}
-          <div
-            aria-label="말해줄게 로고 자리(임시)"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-[10px] font-medium text-emerald-700"
-          >
-            로고
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.png"
+            alt="말해줄게 - 말순이"
+            className="h-11 w-11 rounded-xl object-contain"
+          />
         </header>
 
         <p className="text-center text-xs text-slate-500">상황에 맞는 답변을 추천해드려요.</p>
