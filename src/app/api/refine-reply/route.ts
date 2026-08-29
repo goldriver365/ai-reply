@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "@/lib/anthropicClient";
 import { RefineResponseSchema, UserStyleProfileSchema } from "@/lib/replySchema";
 import { REFINE_SYSTEM_PROMPT, buildRefinePrompt } from "@/lib/prompt";
+import { checkRateLimit, getClientKey, RATE_LIMIT_MESSAGE } from "@/lib/rateLimit";
 import type { RefineAdjustment, RefineResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -18,6 +19,11 @@ const MAX_PARSE_ATTEMPTS = 2;
 // 답변 하나만 다듬는 작은 요청이므로 짧게 잡는다. maxRetries는 일시적 네트워크/5xx 오류에 대한
 // SDK 자체 재시도 횟수(최대 1회로 제한).
 const REQUEST_OPTIONS = { timeout: 20_000, maxRetries: 1 };
+// 답변 문장 + 짧은 맥락만 오가는 작은 요청이므로 여유 있게 잡되 과도한 요청은 거절한다.
+const MAX_BODY_BYTES = 200 * 1024;
+// 회원가입 없는 공개 endpoint이므로 같은 IP의 짧은 시간 대량 호출만 완화하는 최소한의 장치.
+const RATE_LIMIT = 20;
+const RATE_LIMIT_WINDOW_MS = 60_000;
 
 const GENERIC_ERROR_MESSAGE = "답변을 조정하지 못했습니다. 다시 시도해주세요.";
 const ADJUSTMENTS: readonly RefineAdjustment[] = [
@@ -43,6 +49,15 @@ function toContextField(value: unknown, fallback: string): string {
 }
 
 export async function POST(request: Request) {
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (contentLength > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: "요청이 너무 큽니다." }, { status: 413 });
+  }
+
+  if (!checkRateLimit(`refine:${getClientKey(request)}`, RATE_LIMIT, RATE_LIMIT_WINDOW_MS)) {
+    return NextResponse.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();

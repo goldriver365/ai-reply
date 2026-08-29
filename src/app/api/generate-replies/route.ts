@@ -21,6 +21,7 @@ import {
   splitRecentAndOlder,
 } from "@/lib/conversationLength";
 import { summarizeOlderConversation } from "@/lib/summarizeConversation";
+import { checkRateLimit, getClientKey, RATE_LIMIT_MESSAGE } from "@/lib/rateLimit";
 import type {
   AIReplyResult,
   ConversationContextData,
@@ -55,6 +56,12 @@ const MAX_PARSE_ATTEMPTS = 2;
 // Vision이 포함될 수 있어 다른 라우트보다 넉넉하게 잡되, 요청이 무한 대기하지 않도록 상한을 둔다.
 // maxRetries는 일시적 네트워크/5xx 오류에 대한 SDK 자체 재시도 횟수(최대 1회로 제한).
 const REQUEST_OPTIONS = { timeout: 45_000, maxRetries: 1 };
+// 이미지 최대 6장 × 이미지 하나당 base64 상한을 감안한 넉넉한 상한(섹션 45: 요청 크기 제한).
+// 이 크기를 넘는 요청은 본문을 파싱하기 전에 거절한다.
+const MAX_BODY_BYTES = 50 * 1024 * 1024;
+// 회원가입 없는 공개 endpoint이므로 같은 IP의 짧은 시간 대량 호출만 완화하는 최소한의 장치.
+const RATE_LIMIT = 10;
+const RATE_LIMIT_WINDOW_MS = 60_000;
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 type AllowedImageType = (typeof ALLOWED_IMAGE_TYPES)[number];
 const SPEAKER_HINTS = ["other", "me"] as const;
@@ -134,6 +141,15 @@ function parseImages(value: unknown): ParseImagesResult {
 }
 
 export async function POST(request: Request) {
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (contentLength > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: "요청이 너무 큽니다." }, { status: 413 });
+  }
+
+  if (!checkRateLimit(`generate:${getClientKey(request)}`, RATE_LIMIT, RATE_LIMIT_WINDOW_MS)) {
+    return NextResponse.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();

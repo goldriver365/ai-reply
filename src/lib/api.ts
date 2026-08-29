@@ -47,6 +47,15 @@ export type GenerateRepliesResult =
 const FAILURE_MESSAGE = "답변을 만들지 못했습니다. 다시 시도해주세요.";
 const REFINE_FAILURE_MESSAGE = "답변을 조정하지 못했습니다. 다시 시도해주세요.";
 
+// 서버가 돌려준 error 문구를 우선 사용한다(요청 크기 초과/요청 과다 등 상황별 안내를 위해).
+// 서버는 항상 직접 작성한 안전한 한국어 문구만 반환하므로(원시 provider 오류 없음) 그대로 써도 된다.
+function extractErrorMessage(data: unknown, fallback: string): string {
+  if (data && typeof data === "object" && "error" in data && typeof data.error === "string") {
+    return data.error;
+  }
+  return fallback;
+}
+
 export async function generateReplies(
   input: GenerateRepliesInput,
 ): Promise<GenerateRepliesResult> {
@@ -63,7 +72,7 @@ export async function generateReplies(
       | null;
 
     if (!res.ok || !data || !("result" in data)) {
-      return { ok: false, message: FAILURE_MESSAGE };
+      return { ok: false, message: extractErrorMessage(data, FAILURE_MESSAGE) };
     }
 
     // 서버가 이미 구조화 출력으로 형식을 보장하지만, 잘못된 값을 그대로 화면에 렌더링하지
@@ -117,7 +126,7 @@ export async function refineReply(input: RefineReplyInput): Promise<RefineReplyR
       | null;
 
     if (!res.ok || !data || !("result" in data)) {
-      return { ok: false, message: REFINE_FAILURE_MESSAGE };
+      return { ok: false, message: extractErrorMessage(data, REFINE_FAILURE_MESSAGE) };
     }
 
     const validated = RefineResponseSchema.safeParse(data.result);
@@ -153,7 +162,7 @@ export async function analyzeMyStyle(samples: string[]): Promise<AnalyzeMyStyleR
       | null;
 
     if (!res.ok || !data || !("result" in data)) {
-      return { ok: false, message: MY_STYLE_FAILURE_MESSAGE };
+      return { ok: false, message: extractErrorMessage(data, MY_STYLE_FAILURE_MESSAGE) };
     }
 
     const validated = UserStyleProfileSchema.safeParse(data.result);

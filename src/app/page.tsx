@@ -558,6 +558,7 @@ export default function Home() {
           <textarea
             value={conversationText}
             onChange={(event) => setConversationText(event.target.value)}
+            aria-label="상대방 대화 입력"
             placeholder={
               hasImages
                 ? "추가 설명 (선택)\n예: 최근 조금 어색해졌어요 / 제가 먼저 만나자고 하고 싶어요"
@@ -662,6 +663,7 @@ export default function Home() {
                     <textarea
                       value={myStyleSamples}
                       onChange={(event) => setMyStyleSamples(event.target.value)}
+                      aria-label="평소 내가 보낸 메시지 예시 입력"
                       placeholder={
                         "ㅋㅋ 그건 좀 웃기다\n나 오늘은 조금 늦을 것 같아\n응 괜찮아 천천히 와"
                       }

@@ -12,9 +12,19 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_TITLE = "내가 말해줄게 | AI 답장 추천";
+const SITE_DESCRIPTION =
+  "대화를 붙여넣거나 스크린샷을 올리면 상황에 맞는 답장 4개를 추천해드려요.";
+
 export const metadata: Metadata = {
-  title: "AI 답장 추천",
-  description: "대화를 붙여넣거나 파일을 올리면 다음 답장을 추천해드립니다.",
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
+  openGraph: {
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    locale: "ko_KR",
+    type: "website",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
