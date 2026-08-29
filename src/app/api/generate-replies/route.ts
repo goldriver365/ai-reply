@@ -365,11 +365,11 @@ export async function POST(request: Request) {
           messages: [
             {
               role: "system",
-              // 시스템 프롬프트는 요청마다 동일하므로 명시적 프롬프트 캐시 경계를 표시해 비용을
-              // 줄인다(OpenAI가 반복되는 프롬프트 앞부분을 자동으로 더 저렴하게 처리한다).
-              content: [
-                { type: "text", text: REPLY_SYSTEM_PROMPT, prompt_cache_breakpoint: { mode: "explicit" } },
-              ],
+              // 시스템 프롬프트는 요청마다 완전히 동일한 문자열로 유지한다 — OpenAI가 반복되는
+              // 프롬프트 앞부분을 자동으로 캐시해 더 저렴하게 처리한다(자동/암묵적 캐싱).
+              // 주의: prompt_cache_breakpoint(명시적 캐시 경계)는 gpt-5.6 이상 모델에서만
+              // 지원되고 gpt-4o에는 없는 파라미터라 요청 자체가 400으로 거부되므로 쓰지 않는다.
+              content: REPLY_SYSTEM_PROMPT,
             },
             { role: "user", content: userContent },
           ],

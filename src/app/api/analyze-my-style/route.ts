@@ -79,9 +79,10 @@ export async function POST(request: Request) {
           messages: [
             {
               role: "system",
-              content: [
-                { type: "text", text: MY_STYLE_SYSTEM_PROMPT, prompt_cache_breakpoint: { mode: "explicit" } },
-              ],
+              // 프롬프트는 요청마다 동일한 문자열로 유지해 OpenAI의 자동(암묵적) 캐싱 혜택을 받는다.
+              // prompt_cache_breakpoint(명시적 캐시 경계)는 gpt-5.6 이상 전용 파라미터라
+              // gpt-4o-mini에서는 요청이 400으로 거부되므로 쓰지 않는다.
+              content: MY_STYLE_SYSTEM_PROMPT,
             },
             { role: "user", content: promptContent },
           ],
