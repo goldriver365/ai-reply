@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { APIError } from "openai";
 import { getOpenAIClient } from "@/lib/openaiClient";
@@ -75,6 +76,13 @@ type SpeakerHint = (typeof SPEAKER_HINTS)[number];
 
 // 메인 답변 생성 모델. Vision(스크린샷)까지 함께 처리하므로 멀티모달 지원 모델을 사용한다.
 const MODEL = "gpt-4o";
+
+// OpenAI Structured Outputs는 스키마 최상위(root)가 반드시 object 타입이어야 하고, 최상위가
+// discriminatedUnion(anyOf)인 스키마는 거부한다("Root schema must have type: 'object'").
+// ReplyResponseSchema는 status로 갈리는 discriminated union이라 최상위에 그대로 쓸 수 없으므로,
+// 요청할 때만 얇은 객체로 한 번 감싸고 응답을 받은 뒤 다시 풀어낸다. 클라이언트로 나가는
+// AIReplyResult 모양 자체는 전혀 바뀌지 않는다.
+const ReplyResponseWrapperSchema = z.object({ response: ReplyResponseSchema });
 
 function isSpeakerHint(value: unknown): value is SpeakerHint {
   return typeof value === "string" && (SPEAKER_HINTS as readonly string[]).includes(value);
@@ -353,7 +361,7 @@ export async function POST(request: Request) {
         {
           model: MODEL,
           max_completion_tokens: 2048,
-          response_format: zodResponseFormat(ReplyResponseSchema, "reply_response"),
+          response_format: zodResponseFormat(ReplyResponseWrapperSchema, "reply_response"),
           messages: [
             {
               role: "system",
@@ -368,7 +376,7 @@ export async function POST(request: Request) {
         },
         REQUEST_OPTIONS,
       );
-      parsed = response.choices[0]?.message.parsed ?? null;
+      parsed = response.choices[0]?.message.parsed?.response ?? null;
     }
 
     if (!parsed) {
