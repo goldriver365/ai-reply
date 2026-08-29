@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient } from "@/lib/anthropicClient";
+import { zodResponseFormat } from "openai/helpers/zod";
+import { APIError } from "openai";
+import { getOpenAIClient } from "@/lib/openaiClient";
 import { RefineResponseSchema, UserStyleProfileSchema } from "@/lib/replySchema";
 import { REFINE_SYSTEM_PROMPT, buildRefinePrompt } from "@/lib/prompt";
 import { checkRateLimit, getClientKey, RATE_LIMIT_MESSAGE } from "@/lib/rateLimit";
@@ -24,6 +24,8 @@ const MAX_BODY_BYTES = 200 * 1024;
 // 회원가입 없는 공개 endpoint이므로 같은 IP의 짧은 시간 대량 호출만 완화하는 최소한의 장치.
 const RATE_LIMIT = 20;
 const RATE_LIMIT_WINDOW_MS = 60_000;
+// 답변 하나만 다듬는 저비용 작업이므로 작은 모델을 사용한다.
+const MODEL = "gpt-4o-mini";
 
 const GENERIC_ERROR_MESSAGE = "답변을 조정하지 못했습니다. 다시 시도해주세요.";
 const ADJUSTMENTS: readonly RefineAdjustment[] = [
@@ -105,7 +107,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const client = getAnthropicClient();
+    const client = getOpenAIClient();
     const promptContent = buildRefinePrompt({
       text: text.trim().slice(0, MAX_TEXT_LENGTH),
       adjustment,
@@ -125,23 +127,24 @@ export async function POST(request: Request) {
     // 다시 시도한다(섹션 23). 그래도 실패하면 일반적인 오류 메시지로 처리한다.
     let parsed: RefineResponse | null = null;
     for (let attempt = 0; attempt < MAX_PARSE_ATTEMPTS && !parsed; attempt++) {
-      const response = await client.messages.parse({
-        model: "claude-sonnet-5",
-        max_tokens: 512,
-        output_config: {
-          effort: "low",
-          format: zodOutputFormat(RefineResponseSchema),
+      const response = await client.chat.completions.parse(
+        {
+          model: MODEL,
+          max_completion_tokens: 512,
+          response_format: zodResponseFormat(RefineResponseSchema, "refine_response"),
+          messages: [
+            {
+              role: "system",
+              content: [
+                { type: "text", text: REFINE_SYSTEM_PROMPT, prompt_cache_breakpoint: { mode: "explicit" } },
+              ],
+            },
+            { role: "user", content: promptContent },
+          ],
         },
-        system: [
-          {
-            type: "text",
-            text: REFINE_SYSTEM_PROMPT,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
-        messages: [{ role: "user", content: promptContent }],
-      }, REQUEST_OPTIONS);
-      parsed = response.parsed_output ?? null;
+        REQUEST_OPTIONS,
+      );
+      parsed = response.choices[0]?.message.parsed ?? null;
     }
 
     if (!parsed) {
@@ -151,8 +154,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ result: parsed });
   } catch (error) {
     // 답변 원문은 로그에 남기지 않는다. 오류 종류/상태 코드 등 메타데이터만 남긴다.
-    if (error instanceof Anthropic.APIError) {
-      console.error("refine-reply Anthropic API error", { status: error.status, name: error.name });
+    if (error instanceof APIError) {
+      console.error("refine-reply OpenAI API error", { status: error.status, name: error.name });
     } else {
       console.error("refine-reply failed", {
         name: error instanceof Error ? error.name : "unknown",

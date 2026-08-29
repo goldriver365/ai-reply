@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient } from "@/lib/anthropicClient";
+import { zodResponseFormat } from "openai/helpers/zod";
+import { APIError } from "openai";
+import { getOpenAIClient } from "@/lib/openaiClient";
 import {
   ConversationContextSchema,
   ReplyResponseSchema,
@@ -33,6 +33,12 @@ import type {
 } from "@/lib/types";
 
 export const runtime = "nodejs";
+
+// 사용자 메시지에 들어가는 콘텐츠 조각(텍스트 또는 이미지). OpenAI Chat Completions API의
+// content part 형식과 구조적으로 호환되게만 최소한으로 정의한다.
+type UserContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
 
 // 매우 긴 입력에 대한 절대 안전장치(대략적인 토큰 상한 역할). 이보다 길면 뒤쪽(최근) 내용만 남긴다.
 const MAX_CONVERSATION_LENGTH_ABSOLUTE = 60_000;
@@ -66,6 +72,9 @@ const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 type AllowedImageType = (typeof ALLOWED_IMAGE_TYPES)[number];
 const SPEAKER_HINTS = ["other", "me"] as const;
 type SpeakerHint = (typeof SPEAKER_HINTS)[number];
+
+// 메인 답변 생성 모델. Vision(스크린샷)까지 함께 처리하므로 멀티모달 지원 모델을 사용한다.
+const MODEL = "gpt-4o";
 
 function isSpeakerHint(value: unknown): value is SpeakerHint {
   return typeof value === "string" && (SPEAKER_HINTS as readonly string[]).includes(value);
@@ -206,7 +215,7 @@ export async function POST(request: Request) {
     ? speakerHint
     : undefined;
 
-  let userContent: Anthropic.MessageParam["content"];
+  let userContent: string | UserContentPart[];
   // 이번 요청에서 실제로 사용한(또는 새로 만든) 대화 맥락. 응답에 실어 보내면
   // 클라이언트가 "다시 추천" 등에서 재사용해 재요약 호출을 건너뛸 수 있다.
   let resultConversationContext: ConversationContextData | undefined;
@@ -231,12 +240,12 @@ export async function POST(request: Request) {
         ? note.trim().slice(0, MAX_NOTE_LENGTH)
         : undefined;
 
-    const content: Anthropic.MessageParam["content"] = [];
+    const content: UserContentPart[] = [];
     validatedImages.forEach((image, index) => {
       content.push({ type: "text", text: `[스크린샷 ${index + 1}]` });
       content.push({
-        type: "image",
-        source: { type: "base64", media_type: image.mediaType, data: image.data },
+        type: "image_url",
+        image_url: { url: `data:${image.mediaType};base64,${image.data}` },
       });
     });
     content.push({
@@ -290,7 +299,7 @@ export async function POST(request: Request) {
       let contextToUse = incomingContext;
       if (!contextToUse) {
         try {
-          contextToUse = await summarizeOlderConversation(getAnthropicClient(), older);
+          contextToUse = await summarizeOlderConversation(getOpenAIClient(), older);
         } catch (error) {
           console.error(
             "conversation summarize failed",
@@ -334,29 +343,32 @@ export async function POST(request: Request) {
   }
 
   try {
-    const client = getAnthropicClient();
+    const client = getOpenAIClient();
 
     // AI 응답이 구조화 JSON 형식에 맞지 않는 드문 경우, 무한 재시도가 아니라 1회만 안전하게
     // 다시 시도한다(섹션 23). 그래도 실패하면 일반적인 오류 메시지로 처리한다.
     let parsed: AIReplyResult | null = null;
     for (let attempt = 0; attempt < MAX_PARSE_ATTEMPTS && !parsed; attempt++) {
-      const response = await client.messages.parse({
-        model: "claude-sonnet-5",
-        max_tokens: 2048,
-        output_config: {
-          effort: "medium",
-          format: zodOutputFormat(ReplyResponseSchema),
+      const response = await client.chat.completions.parse(
+        {
+          model: MODEL,
+          max_completion_tokens: 2048,
+          response_format: zodResponseFormat(ReplyResponseSchema, "reply_response"),
+          messages: [
+            {
+              role: "system",
+              // 시스템 프롬프트는 요청마다 동일하므로 명시적 프롬프트 캐시 경계를 표시해 비용을
+              // 줄인다(OpenAI가 반복되는 프롬프트 앞부분을 자동으로 더 저렴하게 처리한다).
+              content: [
+                { type: "text", text: REPLY_SYSTEM_PROMPT, prompt_cache_breakpoint: { mode: "explicit" } },
+              ],
+            },
+            { role: "user", content: userContent },
+          ],
         },
-        system: [
-          {
-            type: "text",
-            text: REPLY_SYSTEM_PROMPT,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
-        messages: [{ role: "user", content: userContent }],
-      }, REQUEST_OPTIONS);
-      parsed = response.parsed_output ?? null;
+        REQUEST_OPTIONS,
+      );
+      parsed = response.choices[0]?.message.parsed ?? null;
     }
 
     if (!parsed) {
@@ -377,8 +389,8 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     // 대화 원문은 절대 로그에 남기지 않는다. 오류 종류/상태 코드 등 메타데이터만 남긴다.
-    if (error instanceof Anthropic.APIError) {
-      console.error("generate-replies Anthropic API error", {
+    if (error instanceof APIError) {
+      console.error("generate-replies OpenAI API error", {
         status: error.status,
         name: error.name,
       });

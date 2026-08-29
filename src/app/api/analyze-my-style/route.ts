@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient } from "@/lib/anthropicClient";
+import { zodResponseFormat } from "openai/helpers/zod";
+import { APIError } from "openai";
+import { getOpenAIClient } from "@/lib/openaiClient";
 import { UserStyleProfileSchema } from "@/lib/replySchema";
 import { MY_STYLE_SYSTEM_PROMPT, buildMyStylePrompt } from "@/lib/prompt";
 import { checkRateLimit, getClientKey, RATE_LIMIT_MESSAGE } from "@/lib/rateLimit";
@@ -23,6 +23,8 @@ const MAX_BODY_BYTES = 50 * 1024;
 // 회원가입 없는 공개 endpoint이므로 같은 IP의 짧은 시간 대량 호출만 완화하는 최소한의 장치.
 const RATE_LIMIT = 5;
 const RATE_LIMIT_WINDOW_MS = 60_000;
+// 짧은 예시 몇 개만 보는 저비용 작업이므로 작은 모델을 사용한다.
+const MODEL = "gpt-4o-mini";
 
 const GENERIC_ERROR_MESSAGE = "말투를 기억하지 못했습니다. 다시 시도해주세요.";
 
@@ -62,30 +64,31 @@ export async function POST(request: Request) {
   }
 
   try {
-    const client = getAnthropicClient();
+    const client = getOpenAIClient();
     const promptContent = buildMyStylePrompt(parsedSamples);
 
     // AI 응답이 구조화 JSON 형식에 맞지 않는 드문 경우, 무한 재시도가 아니라 1회만 안전하게
     // 다시 시도한다(섹션 23). 그래도 실패하면 일반적인 오류 메시지로 처리한다.
     let parsed: UserStyleProfile | null = null;
     for (let attempt = 0; attempt < MAX_PARSE_ATTEMPTS && !parsed; attempt++) {
-      const response = await client.messages.parse({
-        model: "claude-sonnet-5",
-        max_tokens: 300,
-        output_config: {
-          effort: "low",
-          format: zodOutputFormat(UserStyleProfileSchema),
+      const response = await client.chat.completions.parse(
+        {
+          model: MODEL,
+          max_completion_tokens: 300,
+          response_format: zodResponseFormat(UserStyleProfileSchema, "user_style_profile"),
+          messages: [
+            {
+              role: "system",
+              content: [
+                { type: "text", text: MY_STYLE_SYSTEM_PROMPT, prompt_cache_breakpoint: { mode: "explicit" } },
+              ],
+            },
+            { role: "user", content: promptContent },
+          ],
         },
-        system: [
-          {
-            type: "text",
-            text: MY_STYLE_SYSTEM_PROMPT,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
-        messages: [{ role: "user", content: promptContent }],
-      }, REQUEST_OPTIONS);
-      parsed = response.parsed_output ?? null;
+        REQUEST_OPTIONS,
+      );
+      parsed = response.choices[0]?.message.parsed ?? null;
     }
 
     if (!parsed) {
@@ -96,8 +99,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ result: parsed });
   } catch (error) {
     // 예시 메시지 원문은 절대 로그에 남기지 않는다. 오류 종류/상태 코드 등 메타데이터만 남긴다.
-    if (error instanceof Anthropic.APIError) {
-      console.error("analyze-my-style Anthropic API error", { status: error.status, name: error.name });
+    if (error instanceof APIError) {
+      console.error("analyze-my-style OpenAI API error", { status: error.status, name: error.name });
     } else {
       console.error("analyze-my-style failed", {
         name: error instanceof Error ? error.name : "unknown",
