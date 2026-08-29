@@ -157,7 +157,7 @@ export default function Home() {
     [conversationText, hasImages],
   );
 
-  const handleAddImages = (files: FileList) => {
+  const handleAddImages = (files: FileList | File[]) => {
     // files는 input의 실시간 FileList라서, 호출자가 뒤이어 input.value를 초기화하면
     // 비워질 수 있다. setImages 콜백 밖에서 즉시 배열로 변환해 값을 고정한다.
     const selectedFiles = Array.from(files);
@@ -215,6 +215,28 @@ export default function Home() {
       [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
       return next;
     });
+  };
+
+  // 스크린샷을 파일로 저장했다가 다시 선택하지 않아도, 캡처한 화면을 클립보드에서
+  // Ctrl+V(또는 우클릭 붙여넣기)로 바로 넣을 수 있게 한다. 클립보드에 이미지가 없으면
+  // (평소처럼 대화 텍스트를 붙여넣는 경우) 아무 것도 하지 않고 기본 붙여넣기 동작을 그대로 둔다.
+  const handlePasteConversation = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+
+    const imageFiles: File[] = [];
+    for (const item of items) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length === 0) return;
+
+    // 이미지 데이터가 텍스트로 붙여넣어지지 않도록 막고, 대신 스크린샷 첨부로 추가한다.
+    event.preventDefault();
+    setShowAttach(true);
+    handleAddImages(imageFiles);
   };
 
   // 어떤 AI 요청이든 하나만 동시에 진행되도록 막는다(답변 추천/다시 추천/답변 조정이 서로 겹쳐
@@ -549,13 +571,14 @@ export default function Home() {
           <div>
             <h2 className="text-sm font-semibold text-slate-700">상대방 대화</h2>
             <p className="text-xs text-slate-500">
-              상대방이 보낸 대화를 붙여넣거나 입력하세요
+              상대방이 보낸 대화를 붙여넣거나 입력하세요 (스크린샷을 캡처했다면 여기에 그대로 붙여넣어도 돼요)
             </p>
           </div>
 
           <textarea
             value={conversationText}
             onChange={(event) => setConversationText(event.target.value)}
+            onPaste={handlePasteConversation}
             aria-label="상대방 대화 입력"
             placeholder={
               hasImages
