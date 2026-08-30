@@ -190,7 +190,7 @@ export default function ReplyResultCard({
                 placeholder="예: 조금 더 차갑게"
                 maxLength={MAX_CUSTOM_INSTRUCTION_LENGTH}
                 disabled={buttonsDisabled}
-                className="h-8 flex-1 rounded-lg border border-slate-200 px-2 text-xs text-slate-900 outline-none focus:border-emerald-400 disabled:bg-slate-50"
+                className="h-9 flex-1 rounded-lg border border-slate-200 px-2 text-base text-slate-900 outline-none focus:border-emerald-400 disabled:bg-slate-50 sm:h-8 sm:text-xs"
               />
               <button
                 type="button"

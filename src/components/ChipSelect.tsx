@@ -23,10 +23,23 @@ export default function ChipSelect<T extends string>({
   const visibleOptions = expanded ? allOptions : primaryOptions;
   const hasMore = allOptions.length > primaryOptions.length;
 
+  // 기본(접힌) 상태에서는 모바일 화면 폭에 맞춰 칩 전부(+ "더보기")가 가로 스크롤 없이
+  // 한 줄에 고르게 나뉘도록 칩 개수만큼 그리드 열을 만든다. 데스크톱(sm 이상)에서는
+  // 기존처럼 자연스럽게 줄바꿈되는 flex 레이아웃을 그대로 유지한다. "더보기"를 눌러
+  // 전체 목록을 펼친 상태는 옵션이 많아 원래도 여러 줄로 감싸는 게 맞으므로 그대로 둔다.
+  const compactColumnCount = visibleOptions.length + (hasMore ? 1 : 0);
+
   return (
     <div className="space-y-1">
       <span className="text-xs font-medium text-slate-500">{label}</span>
-      <div className="flex flex-wrap gap-1.5">
+      <div
+        className={
+          expanded
+            ? "flex flex-wrap gap-1.5"
+            : "grid gap-1 sm:flex sm:flex-wrap sm:gap-1.5"
+        }
+        style={expanded ? undefined : { gridTemplateColumns: `repeat(${compactColumnCount}, minmax(0, 1fr))` }}
+      >
         {visibleOptions.map((option) => {
           const active = option === value;
           return (
@@ -35,7 +48,7 @@ export default function ChipSelect<T extends string>({
               type="button"
               aria-pressed={active}
               onClick={() => onChange(option)}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              className={`min-w-0 rounded-full px-1.5 py-1 text-[11px] font-medium leading-tight transition-colors sm:px-3 sm:py-1 sm:text-xs ${
                 active
                   ? "bg-emerald-600 text-white"
                   : "bg-emerald-50 text-slate-600 hover:bg-emerald-100"
@@ -49,7 +62,7 @@ export default function ChipSelect<T extends string>({
           <button
             type="button"
             onClick={() => setManuallyExpanded((prev) => !prev)}
-            className="rounded-full px-2 py-1 text-xs font-medium text-slate-400 hover:text-slate-600"
+            className="min-w-0 rounded-full px-1 py-1 text-[11px] font-medium leading-tight text-slate-400 hover:text-slate-600 sm:px-2 sm:text-xs"
           >
             {expanded ? "접기" : "더보기"}
           </button>

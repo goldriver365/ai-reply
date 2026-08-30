@@ -17,7 +17,7 @@ export default function LabeledSelect<T extends string>({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value as T)}
-        className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400"
+        className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-base text-slate-900 outline-none focus:border-emerald-400 sm:text-sm"
       >
         {options.map((option) => (
           <option key={option} value={option}>

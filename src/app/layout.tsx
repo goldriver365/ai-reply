@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Gaegu, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -34,6 +34,12 @@ export const metadata: Metadata = {
     locale: "ko_KR",
     type: "website",
   },
+};
+
+// iPhone처럼 화면 모서리가 둥글거나 하단 홈 인디케이터가 있는 기기에서 콘텐츠가
+// 그 영역까지 안전하게 확장/인식되도록 한다(safe-area-inset-* 값이 실제로 채워짐).
+export const viewport: Viewport = {
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

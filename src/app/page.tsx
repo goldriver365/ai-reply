@@ -599,8 +599,8 @@ export default function Home() {
 
   return (
     <div className="min-h-full flex-1 bg-stone-50">
-      <main className="mx-auto flex w-full max-w-md flex-col gap-5 px-4 pb-16 pt-6">
-        <header className="flex items-center gap-3">
+      <main className="mx-auto flex w-full max-w-md flex-col gap-3 px-4 pb-[calc(4rem+env(safe-area-inset-bottom))] pt-4 sm:gap-5 sm:pt-6">
+        <header className="flex items-center gap-2 sm:gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo.png"
@@ -612,7 +612,7 @@ export default function Home() {
 
         <p className="text-center text-xs text-slate-500">상황에 맞는 답변을 추천해드려요.</p>
 
-        <section className="space-y-2">
+        <section className="space-y-1 sm:space-y-2">
           <div>
             <h2 className="text-sm font-semibold text-slate-700">상대방 대화</h2>
             <p className="text-xs text-slate-500">
@@ -643,29 +643,31 @@ export default function Home() {
                   ? "추가 설명 (선택)\n예: 최근 조금 어색해졌어요 / 제가 먼저 만나자고 하고 싶어요"
                   : "상대방: 오늘 뭐해요?\n나: 아직 특별한 일정은 없어요.\n상대방: 그러면 저녁에 볼래요?"
               }
-              className="h-64 w-full resize-none bg-transparent p-4 text-sm leading-relaxed text-slate-900 outline-none"
+              className="h-56 w-full resize-none bg-transparent p-4 text-base leading-relaxed text-slate-900 outline-none sm:h-64 sm:text-sm"
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          {/* 모바일에서도 두 버튼이 한 줄을 넘지 않도록 폭을 절반씩 나눠 자동으로 줄인다
+              (min-w-0 + truncate로 라벨이 줄바꿈되어 두 번째 줄로 밀려나지 않게 한다). */}
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => imageUploaderRef.current?.open()}
               disabled={images.length >= MAX_IMAGES}
-              className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-initial sm:px-3"
             >
               <AttachIcon />
-              사진 첨부
+              <span className="truncate">사진 첨부</span>
             </button>
             {/* 휴대폰에서 Ctrl+V 붙여넣기가 잘 인식되지 않을 때를 위한 대안 버튼(클립보드 직접 읽기). */}
             <button
               type="button"
               onClick={() => void handleClipboardButtonPaste()}
               disabled={images.length >= MAX_IMAGES}
-              className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-initial sm:px-3"
             >
               <AttachIcon />
-              클립보드 붙여넣기
+              <span className="truncate">클립보드 붙여넣기</span>
             </button>
           </div>
           <p className="text-[11px] text-slate-400">대화 내용은 저장하지 않습니다.</p>
@@ -673,7 +675,7 @@ export default function Home() {
           {imageNotice && <p className="text-[11px] text-slate-400">{imageNotice}</p>}
         </section>
 
-        <section className="space-y-3">
+        <section className="space-y-2 sm:space-y-3">
           <ChipSelect
             label="관계"
             value={relationship}
@@ -750,7 +752,7 @@ export default function Home() {
                       placeholder={
                         "ㅋㅋ 그건 좀 웃기다\n나 오늘은 조금 늦을 것 같아\n응 괜찮아 천천히 와"
                       }
-                      className="h-24 w-full resize-none rounded-lg border border-slate-200 bg-white p-2 text-xs leading-relaxed text-slate-900 outline-none focus:border-emerald-400"
+                      className="h-24 w-full resize-none rounded-lg border border-slate-200 bg-white p-2 text-base leading-relaxed text-slate-900 outline-none focus:border-emerald-400 sm:text-xs"
                     />
                     <p className="text-[10px] text-slate-400">
                       문장 내용이 아닌 말투 특징만 기억합니다.
