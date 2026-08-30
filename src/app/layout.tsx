@@ -34,12 +34,21 @@ export const metadata: Metadata = {
     locale: "ko_KR",
     type: "website",
   },
+  // 홈 화면에 추가했을 때 쓰이는 정보. 아이콘 자체는 manifest.ts/app/icon.png/
+  // app/apple-icon.png 파일이 처리하고, 여기서는 iOS에서 "홈 화면에 추가"로 실행했을 때
+  // 주소창 없는 앱처럼 열리고 아이콘 아래 표시될 이름을 지정한다.
+  appleWebApp: {
+    capable: true,
+    title: "내가 말해줄게",
+    statusBarStyle: "default",
+  },
 };
 
 // iPhone처럼 화면 모서리가 둥글거나 하단 홈 인디케이터가 있는 기기에서 콘텐츠가
 // 그 영역까지 안전하게 확장/인식되도록 한다(safe-area-inset-* 값이 실제로 채워짐).
 export const viewport: Viewport = {
   viewportFit: "cover",
+  themeColor: "#059669",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

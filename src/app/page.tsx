@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ChipSelect from "@/components/ChipSelect";
 import ImageUploader, { MAX_IMAGES, type ImageUploaderHandle } from "@/components/ImageUploader";
+import InstallPrompt from "@/components/InstallPrompt";
 import LabeledSelect from "@/components/LabeledSelect";
 import QuickEmojis from "@/components/QuickEmojis";
 import ReplyResultCard from "@/components/ReplyResultCard";
@@ -599,6 +600,7 @@ export default function Home() {
 
   return (
     <div className="min-h-full flex-1 bg-stone-50">
+      <InstallPrompt />
       <main className="mx-auto flex w-full max-w-md flex-col gap-3 px-4 pb-[calc(4rem+env(safe-area-inset-bottom))] pt-4 sm:gap-5 sm:pt-6">
         <header className="flex items-center gap-2 sm:gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
