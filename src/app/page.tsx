@@ -157,6 +157,16 @@ export default function Home() {
     [conversationText, hasImages],
   );
 
+  // 잠깐 보여주고 사라지는 사진 관련 안내(중복 제외, 클립보드 붙여넣기 실패 등)에 공통으로 쓴다.
+  const showImageNotice = (text: string) => {
+    if (imageNoticeTimeoutRef.current !== null) window.clearTimeout(imageNoticeTimeoutRef.current);
+    setImageNotice(text);
+    imageNoticeTimeoutRef.current = window.setTimeout(() => {
+      setImageNotice(null);
+      imageNoticeTimeoutRef.current = null;
+    }, 2500);
+  };
+
   const handleAddImages = (files: FileList | File[]) => {
     // files는 input의 실시간 FileList라서, 호출자가 뒤이어 input.value를 초기화하면
     // 비워질 수 있다. setImages 콜백 밖에서 즉시 배열로 변환해 값을 고정한다.
@@ -178,12 +188,7 @@ export default function Home() {
     }
 
     if (duplicateCount > 0) {
-      if (imageNoticeTimeoutRef.current !== null) window.clearTimeout(imageNoticeTimeoutRef.current);
-      setImageNotice(`중복된 사진 ${duplicateCount}장은 제외했어요.`);
-      imageNoticeTimeoutRef.current = window.setTimeout(() => {
-        setImageNotice(null);
-        imageNoticeTimeoutRef.current = null;
-      }, 2500);
+      showImageNotice(`중복된 사진 ${duplicateCount}장은 제외했어요.`);
     }
 
     setImages((prev) => {
@@ -220,15 +225,24 @@ export default function Home() {
   // 스크린샷을 파일로 저장했다가 다시 선택하지 않아도, 캡처한 화면을 클립보드에서
   // Ctrl+V(또는 우클릭 붙여넣기)로 바로 넣을 수 있게 한다. 클립보드에 이미지가 없으면
   // (평소처럼 대화 텍스트를 붙여넣는 경우) 아무 것도 하지 않고 기본 붙여넣기 동작을 그대로 둔다.
+  // 일부 모바일 브라우저는 clipboardData.items에서 이미지를 잘 못 찾는 경우가 있어,
+  // items로 하나도 못 찾으면 clipboardData.files도 한 번 더 확인한다.
   const handlePasteConversation = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = event.clipboardData?.items;
-    if (!items) return;
+    const clipboardData = event.clipboardData;
+    if (!clipboardData) return;
 
     const imageFiles: File[] = [];
-    for (const item of items) {
-      if (item.kind === "file" && item.type.startsWith("image/")) {
-        const file = item.getAsFile();
-        if (file) imageFiles.push(file);
+    if (clipboardData.items) {
+      for (const item of clipboardData.items) {
+        if (item.kind === "file" && item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) imageFiles.push(file);
+        }
+      }
+    }
+    if (imageFiles.length === 0 && clipboardData.files) {
+      for (const file of clipboardData.files) {
+        if (file.type.startsWith("image/")) imageFiles.push(file);
       }
     }
     if (imageFiles.length === 0) return;
@@ -237,6 +251,36 @@ export default function Home() {
     // 썸네일은 상대방 대화 입력창 안에 바로 나타난다(별도 업로드 창이 없다).
     event.preventDefault();
     handleAddImages(imageFiles);
+  };
+
+  // 휴대폰 키보드의 "붙여넣기" 메뉴는 브라우저/기종에 따라 paste 이벤트에 이미지 데이터를
+  // 제대로 실어 보내지 않는 경우가 있어(위 handlePasteConversation만으로는 인식이 안 될 수
+  // 있음), 버튼을 눌러 클립보드를 직접 읽는 방식(Async Clipboard API)을 함께 제공한다.
+  // 이 API를 지원하지 않거나 권한이 거부되면 조용히 실패하지 않고 "사진 첨부"를 안내한다.
+  const handleClipboardButtonPaste = async () => {
+    if (!navigator.clipboard?.read) {
+      showImageNotice("이 브라우저에서는 지원되지 않아요. '사진 첨부'로 선택해주세요.");
+      return;
+    }
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      const imageFiles: File[] = [];
+      for (const item of clipboardItems) {
+        const imageType = item.types.find((type) => type.startsWith("image/"));
+        if (!imageType) continue;
+        const blob = await item.getType(imageType);
+        const extension = imageType.split("/")[1] ?? "png";
+        imageFiles.push(new File([blob], `clipboard-image.${extension}`, { type: imageType }));
+      }
+      if (imageFiles.length === 0) {
+        showImageNotice("클립보드에서 사진을 찾지 못했어요. 스크린샷을 먼저 복사해주세요.");
+        return;
+      }
+      handleAddImages(imageFiles);
+    } catch {
+      // 권한 거부, HTTPS가 아닌 환경 등 — 원시 오류를 그대로 보여주지 않고 대안을 안내한다.
+      showImageNotice("클립보드를 읽지 못했어요. '사진 첨부'로 선택해주세요.");
+    }
   };
 
   // 어떤 AI 요청이든 하나만 동시에 진행되도록 막는다(답변 추천/다시 추천/답변 조정이 서로 겹쳐
@@ -603,7 +647,7 @@ export default function Home() {
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => imageUploaderRef.current?.open()}
@@ -613,8 +657,18 @@ export default function Home() {
               <AttachIcon />
               사진 첨부
             </button>
-            <span className="text-[11px] text-slate-400">대화 내용은 저장하지 않습니다.</span>
+            {/* 휴대폰에서 Ctrl+V 붙여넣기가 잘 인식되지 않을 때를 위한 대안 버튼(클립보드 직접 읽기). */}
+            <button
+              type="button"
+              onClick={() => void handleClipboardButtonPaste()}
+              disabled={images.length >= MAX_IMAGES}
+              className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <AttachIcon />
+              클립보드 붙여넣기
+            </button>
           </div>
+          <p className="text-[11px] text-slate-400">대화 내용은 저장하지 않습니다.</p>
 
           {imageNotice && <p className="text-[11px] text-slate-400">{imageNotice}</p>}
         </section>
