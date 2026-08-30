@@ -556,13 +556,14 @@ export default function Home() {
   return (
     <div className="min-h-full flex-1 bg-stone-50">
       <main className="mx-auto flex w-full max-w-md flex-col gap-5 px-4 pb-16 pt-6">
-        <header className="flex items-center">
+        <header className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo.png"
-            alt="말해줄게 - 말순이"
-            className="h-20 w-20 rounded-xl object-contain"
+            alt="말순이"
+            className="h-16 w-16 flex-shrink-0 rounded-xl object-contain"
           />
+          <h1 className="font-fun text-4xl leading-none tracking-tight text-emerald-600">내가 말해줄게</h1>
         </header>
 
         <p className="text-center text-xs text-slate-500">상황에 맞는 답변을 추천해드려요.</p>
