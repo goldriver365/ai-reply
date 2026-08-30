@@ -561,7 +561,7 @@ export default function Home() {
           <img
             src="/logo.png"
             alt="말해줄게 - 말순이"
-            className="h-11 w-11 rounded-xl object-contain"
+            className="h-20 w-20 rounded-xl object-contain"
           />
         </header>
 
